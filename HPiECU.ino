@@ -11,7 +11,7 @@
 /       Second modification: fri. 1402/06/24 from 13:00 To 18:35 (blinkers)                 *
 /       third modification sat. 1402/06/25 from 13:00 to 19:00 (blinkers)                   *
 /TODO: Complete Blinkers and test them for working.create horn, engine rpm meter....        *
-/TODO: test mod1&2 & fix Swtich() in dance                                                  *
+/TODO: Create Interrupt For RPM Meter!                                                      *
 /                                                                                           *
 /*******************************************************************************************/
 
