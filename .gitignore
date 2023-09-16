@@ -1,0 +1,6 @@
+
+build/arduino.avr.nano/HPiECU.ino.eep
+build/arduino.avr.nano/HPiECU.ino.elf
+build/arduino.avr.nano/HPiECU.ino.hex
+build/arduino.avr.nano/HPiECU.ino.with_bootloader.bin
+build/arduino.avr.nano/HPiECU.ino.with_bootloader.hex

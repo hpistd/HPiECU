@@ -34,8 +34,8 @@ int bInterval = 250; // normal blinkers on/of delay in ms.
 
 unsigned long  prevMillis = 1000,currentMillis = 0; //for millis();. it used instead of old depricated delay() .
 
-#define DANCE_DELAY 500 // delay between on/off blinkers in ms.
-#define MOD1_REPEATE_TIMES 3 ////how many times current mode should be repeated.
+#define DANCE_DELAY 100 // delay between on/off blinkers in ms.
+#define MOD1_REPEATE_TIMES 18 ////how many times current mode should be repeated.
 #define MOD2_REPEATE_TIMES 3///// how many times current mode should be repeated.
 #define MOD3_REPEAT_TIMES 3 //how many times current mode should be repeated.
 #define BACK_LR_INTERVAL 300  // delay between off/on blinkers in ms.
@@ -47,13 +47,18 @@ unsigned long  prevMillis = 1000,currentMillis = 0; //for millis();. it used ins
 #define MOD4_DELAY 30 // delay between of/on on every cycle
 #define MOD3_INTERVAL 300 // delay between move to (etc from left blinkers to right and reverse)
 #define MOD3_DELAY 30 // delay between of/on on every cycle
+#define MOD2_DELAY 30 // delay between of/on on every cycle
+#define MOD1_DELAY 30 // delay between of/on on every cycle
 
- int dancerandom =0;// random mode changing NOTE : it should to be Modified To runed one After One!.
+
+ int dancerandom =1;// random mode changing NOTE : it should to be Modified To run one After One!.
 short dancecounter =0;// how many times current mode repeated?.
 short mod3counter = 0;
   short mod4counter = 0;
     short mod2counter = 0;
     short i = 0;//For loop in MOD4
+ 
+    bool dummy = false; // for end
 
 enum dancenum
 {
@@ -314,11 +319,11 @@ void Blink(void)
           {
       //     Serial.print("\n in dance \n");
           /* if (dancerandom == 0)*/
-           // dancerandom = random(1,5);
-          dancerandom = 3;
+             if (dancerandom >= 5 ) dancerandom = 1;
+         // dancerandom = 1;
        //     Serial.print("\n random value: " + String(dancerandom) + " \n");
 
-
+               
             switch (dancerandom)
                   {
                    //         Serial.print("\n switch (dancerandom)  \n");
@@ -327,30 +332,37 @@ void Blink(void)
 
                       firstMode:///****************************
                       // turn all blinkers one after one
-                      Serial.print("\n first mode \n");
+
+                        /// Below Line was declared wrongly and only for test!.  Must Modified
+                      if(dancestate !=F_L_ON && dancestate !=F_R_ON && dancestate !=B_L_ON && dancestate !=B_R_ON && dancestate !=F_L_OFF ) dancestate = F_L_ON;
 
 
                       if ((currentMillis - prevMillis) >= DANCE_DELAY)
                      {
+                      Serial.print("\n first mode \n");
+
                       prevMillis = currentMillis;
 
                        switch (dancestate)
                        {
                        case F_L_ON:
+                       // Serial.print("\n fl \n");
                                  digitalWrite(frontLblinkPin,HIGH);
                        dancestate = F_L_OFF;
 
                        break;
 
                        case F_L_OFF:
+                        //Serial.print("\n fR \n");
                           digitalWrite(frontLblinkPin,LOW);
                        digitalWrite(frontRblinkPin,HIGH);
                        // prevMillis = currentMillis;
-                       dancestate = F_L_OFF;//front left bliker is off so turn on next
+                       dancestate = F_R_ON;//front left bliker is off so turn on next
 
-                        // break;
+                        break;
 
                        case F_R_ON:
+                        //Serial.print("\n bR \n");
                             digitalWrite(frontRblinkPin,LOW);
                        digitalWrite(backRblinkPin,HIGH);
                        //  prevMillis = currentMillis;
@@ -360,6 +372,7 @@ void Blink(void)
                        // case F_R_OFF:
                        //  break;
                        case B_R_ON:
+                        //Serial.print("\n bL \n");
                        digitalWrite(backRblinkPin,LOW);
                        digitalWrite(backLblinkPin,HIGH);
                         // prevMillis = currentMillis;
@@ -368,8 +381,9 @@ void Blink(void)
                         // case B_R_OFF:
                        //  break;
                        case B_L_ON:
+                        //Serial.print("\n BLoff \n");
                        digitalWrite(backLblinkPin,LOW);
-                       digitalWrite(frontLblinkPin,HIGH);
+                      // digitalWrite(frontLblinkPin,HIGH);
                         // prevMillis = currentMillis;
                        dancestate = F_L_ON;
 
@@ -381,19 +395,24 @@ void Blink(void)
 
                        //  break;
                        }              
-                     }
+                     
                      dancecounter++;
+                     }
+                     
                      if (dancecounter < MOD1_REPEATE_TIMES)
                         {
-                          goto firstMode;
+                          goto end;
                         }
 
                         else
                         {
                           dancecounter = 0;
+                          dancerandom++;
 
                          break;
                         }
+
+                        
 
                         ////////////////////case1
 
@@ -402,67 +421,75 @@ void Blink(void)
                       // this task wil repeated for etc 3 times
                        
 
-                      dancestate = F_LR_ON;
+                        if (dancestate != B_LR_ON  && dancestate != F_LR_ON )
+                       {
+                         dancestate = F_LR_ON;
+                         }
                      
-                      secondMode:
-                        Serial.print("\n second mode \n");
+                       secondMode:
+                       
 
-                       switch (dancestate)
-                      {
-
-                        case F_LR_ON:
-                        if ((currentMillis - prevMillis) >=FRONT_LR_INTERVAL )
-                         {
+                         // switch (dancestate)
+                        //   {
+   
+                         //  case F_LR_ON:
+                      //   Serial.print("\n A \n");
+                         if ( (currentMillis - prevMillis) >= FRONT_LR_INTERVAL )
+                       {
                           prevMillis = currentMillis;
-                          digitalWrite(frontLblinkPin,state);
-                          digitalWrite(frontRblinkPin,state);
-                          digitalWrite(backLblinkPin,LOW);
-                          digitalWrite(backRblinkPin,LOW);
-                          state =!state; 
-                          mod2counter++;
-                          if (mod2counter < MOD2_REPEATE_TIMES) goto secondMode;
-                          mod2counter = 0;
-                          dancestate = B_LR_ON;
-                           //   dancecounter++;
-                         }                      
-                               //     if (dancecounter < MOD2_REPEATE_TIMES)
-                          //   {
-                          //     goto secondMode;
-                          //   }
+                             Serial.print("\n second mode \n");
 
-                         //   else
-                            //   {
-                         //    dancecounter = 0;
-                         //    break;
-                         //   }
+                            for (i=0; i<10; i++) 
+                            {
+                           //    Serial.print("\n AA \n");
 
-                          case B_LR_ON:
-                          if ((currentMillis - prevMillis) >=BACK_LR_INTERVAL )
-                           {
+                                  delay(MOD2_DELAY);
+                             digitalWrite(frontLblinkPin,state);
+                             digitalWrite(frontRblinkPin,state);
+                             digitalWrite(backLblinkPin,LOW);
+                             digitalWrite(backRblinkPin,LOW);
+                             state =!state; 
+                             delay(MOD2_DELAY);
+                         //    Serial.print("\n AAA \n");
+                            }
+                            
+
+                            for (i=0; i<10; i++) 
+                            {
+
+                          //     Serial.print("\n BB \n");
+
+                                  delay(MOD2_DELAY);
                             digitalWrite(frontLblinkPin,LOW);
                             digitalWrite(frontRblinkPin,LOW);
                             digitalWrite(backLblinkPin,state);
                             digitalWrite(backRblinkPin,state);
                             state =!state;
-                            mod2counter++;
-                           if (mod2counter <MOD2_REPEATE_TIMES) goto secondMode;
-                            mod2counter = 0;
-                            dancestate = F_LR_ON;
-                    
-                          }      
-                          dancecounter++;                 
-                          if (dancecounter < MOD2_REPEATE_TIMES)
-                            {
-                             goto secondMode;
+                            delay(MOD2_DELAY);
                             }
 
-                          else
-                          {
-                           dancecounter = 0;
-                           break;
-                          }
+                            mod2counter++;  
+                           //}
+                         }
+                            if (mod2counter < MOD2_REPEATE_TIMES)
+                             {
+                              
+                               goto end;
+                             //  Serial.print("\n gs \n");
+                             }
 
-                     }
+                           
+                             // Serial.print("\n br \n");
+                            
+                              mod2counter = 0;
+                              dancerandom++;
+                              break;
+                            
+
+                          
+                          
+
+                    //  }
                       // break;/////////////////case2
 
              case 3:
@@ -476,12 +503,12 @@ void Blink(void)
                    //  mod3counter=0;
                      mod3top:
                     
-                   //    Serial.print("\n third mode \n");
+                     
                      
                      if ((currentMillis - prevMillis) >= BACK_LR_INTERVAL )
                       {
                           prevMillis = currentMillis;
-
+                         Serial.print("\n third mode \n");
                          switch (dancestate)
                         {
 
@@ -493,7 +520,7 @@ void Blink(void)
                             {
                             
                             delay(MOD3_DELAY);
-                          Serial.print("\n third AAAA \n");
+                         // Serial.print("\n third AAAA \n");
 
                           digitalWrite(frontRblinkPin,LOW);
                          digitalWrite(backRblinkPin,LOW);
@@ -503,35 +530,25 @@ void Blink(void)
                          delay(MOD3_DELAY);
                         }
 
-                      //  delay(MOD3_INTERVAL);
-                       //  if (mod3counter < MOD3_REPEAT_TIMES)
-                       //  {
-                        //  Serial.print("\n Atop \n");
-                        //   goto mod3top;
-                       //  }
-                      //   else {
-                         
-                         
-                         //Serial.print("\n after if \n");
 
                          mod3counter = 0;
 
                           dancestate = FB_R_ON;
                           break;
-                      //   }
+                       //   }
                       
 
                            // break;
 
                          case FB_R_ON:
                          
-                      //   mod3counter++;
+                       //   mod3counter++;
                         state = true;
 
                          for (i=0; i<10; i++) 
                           {
                             delay(MOD3_DELAY);
-                             Serial.print("\n third BBB \n");
+                             //
 
                              digitalWrite(frontLblinkPin,LOW);
                               digitalWrite(backLblinkPin,LOW);
@@ -541,16 +558,7 @@ void Blink(void)
                              delay(MOD3_DELAY);
                           }
                           
-                        //   delay(MOD3_INTERVAL);
-                       //   if (mod3counter < MOD3_REPEAT_TIMES)
-                       //   {
-                       //     Serial.print("\n Btop \n"); 
-                        //    goto mod3top;
-                         // }
-                         // else {
-                        
-                          
-                        //  mod3counter =0;
+
                          dancestate = FB_L_ON;
 
                          break;
@@ -559,39 +567,42 @@ void Blink(void)
                         }//switch
 
                         dancecounter++;
-                       //if ((currentMillis - prevMillis) >=BACK_LR_INTERVAL )
+                     }//if
+                     
                         if (dancecounter < MOD2_REPEATE_TIMES)
                         {
-                          goto mod3top;
-                          Serial.print("\n go top \n");
+                          
+                        //  Serial.print("\n go top \n");
+                          goto end;
                         }
 
                         else
                         {
                           dancecounter = 0;
-                          
+                            dancerandom++;
+                          break;
                         }
-                    }
-                         break;
+                    
+                         
                        //////////////////////MODE 3
                       
              case 4:////////Blink All 4 Blinkers Rapidly
                   state = true;
                     mod4top:
 
-                  //     Serial.print("\n fourth mode \n");
+                       
 
                     if (currentMillis - prevMillis >= MOD4_INTERVAL)
                     {
                       prevMillis = currentMillis;
 
-                     
+                     Serial.print("\n fourth mode \n");
                     
                        for (i=0; i<10; i++) {
                      
                     
                        delay(MOD4_DELAY);
-                    //    Serial.print("\n fourth run \n");
+                     //    Serial.print("\n fourth run \n");
                       digitalWrite(frontLblinkPin,state);
                       digitalWrite(frontRblinkPin,state);
                       digitalWrite(backLblinkPin,state);
@@ -602,14 +613,14 @@ void Blink(void)
                        }
                        delay(MOD4_INTERVAL);
                        i=0;
-                      mod4counter++;
-                      if(mod4counter < MOD4_REPEAT_TIMES) goto mod4top;     
-                      mod4counter = 0;
+                    //  mod4counter++;
+                     // if(mod4counter < MOD4_REPEAT_TIMES) goto mod4top;     
+                     // mod4counter = 0;
                       dancecounter++;
-                    
+                    } 
                      if (dancecounter < MOD4_REPEAT_TIMES)
                         {
-                          goto mod4top;
+                          goto end;
                             //   Serial.print("\n dancecount" + String(dancecounter)  +" \n");
 
                         }
@@ -617,11 +628,12 @@ void Blink(void)
                         else
                         {
                           dancecounter = 0;
+                            dancerandom++;
                           break;
                         }
 
 
-                    }
+                    
 
                      //       break;
                         //  case 5:
@@ -631,7 +643,8 @@ void Blink(void)
  
                   }  
 
-                               //   Serial.print("\n end of dance \n");
+                 end:              
+                dummy = false;
              }
 
 
