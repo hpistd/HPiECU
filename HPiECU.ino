@@ -29,6 +29,17 @@ const int SirenPin = A0;
 const int BrakePin = 12;
 const int SmallLightPin = 13;
 
+///////////RPM Meter
+#define Signalinput A1
+
+int X;
+int Y;
+float Time;
+float frequency;
+int RPM = 0;
+unsigned long freqPrvmillis = 0;
+///////////
+
 /////<blinkers>
 int bInterval = 250; // normal blinkers on/of delay in ms.
 
@@ -102,6 +113,10 @@ String SerialInputCommands[] ={"off","on","headlight:on","headlight:off","leftfr
 void setup() {
   // put your setup code here, to run once:
 
+///RPM
+pinMode(Signalinput,INPUT);
+//
+
   Serial.begin(115200);
   pinMode(headlightPin,OUTPUT);
   pinMode(TailLightPin,OUTPUT);
@@ -125,6 +140,36 @@ void loop()
 {
      currentMillis = millis();
   // put your main code here, to run repeatedly:
+
+  if ((currentMillis - freqPrvmillis) >= 1000)
+           {
+            
+             X=pulseIn(Signalinput,HIGH);
+             Y=pulseIn(Signalinput,LOW);
+             Time = X+Y;
+             frequency=1000000/Time;
+
+              if(frequency<=0)
+              {
+                RPM = frequency * 60 ;
+
+                Serial.print("RPM:" + RPM);
+              }
+              else 
+               {
+                Serial.print("Engine Is OFF");
+             
+              }
+
+            
+          }
+
+
+
+
+
+
+
 
   if (Serial.available())
     {
