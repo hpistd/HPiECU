@@ -12,20 +12,23 @@
 /       third modification sat. 1402/06/25 from 13:00 to 19:00 (blinkers)                   *
 /TODO: Complete and test meter....                                                          *
 /TODO: create & complete  Input Keys LR Br hd tl horn...                                    *
-/TODO: # Buzzer,Emergency PWR,HORN,Serial Communic., *
+/TODO: # Buzzer,Emergency PWR,HORN,Serial Communic., eeprom data                            *
 /*******************************************************************************************/
 
-#define headlightPin = 2;
-#define frontLblinkPin = 4;
-#define backLblinkPin = 5;
-#define frontRblinkPin = 6;
-#define backRblinkPin = 7;
-#define LhornPin = 8;
-#define RhornPin = 9;
-#define RedSPin = 10;
-#define blueSPin = 11;
-#define BrakePin = 12;
-#define SirenPin = A0; /// Used For Swith Between Normal HIFI Speaker And Piezo Buzzer For Siren. 
+
+#include <EEPROM.h>
+
+#define headlightPin  2
+#define frontLblinkPin  4
+#define backLblinkPin  5
+#define frontRblinkPin  6
+#define backRblinkPin  7
+#define LhornPin  8
+#define RhornPin  9
+#define RedSPin  10
+#define blueSPin  11
+#define BrakePin  12
+#define SirenPin  A0 /// Used For Swith Between Normal HIFI Speaker And Piezo Buzzer For Siren. 
 #define EMERGENCYShutDownPin A4 /// For Remote ShutDown
 
 // Input Keys
@@ -48,7 +51,6 @@ unsigned long freqPrvmillis = 0;
 /////<blinkers>
 int bInterval = 250; // normal blinkers on/of delay in ms.
 unsigned long  prevMillis = 1000,currentMillis = 0; //for millis();. it used instead of old depricated delay() .
-
 #define DANCE_DELAY 100 // delay between on/off blinkers in ms.
 #define MOD1_REPEATE_TIMES 18 ////how many times current mode should be repeated.
 #define MOD2_REPEATE_TIMES 3///// how many times current mode should be repeated.
@@ -100,19 +102,29 @@ bool rfrontblinkerstate = false;
 bool lbackblinkerstate = false;
 bool rbackblinkerstate = false;
 bool blinkdance = false;
+//flags
+bool lturnflag = false,rturnflag = false; //parsing keys
+bool headlightFlag = false;
+#define ENGINE_IS_OFF false //
+#define ENGINE_IS_ON true//
+bool engPowerFlag = ENGINE_IS_OFF;
+
+//EEPROM DATA
+int eep_blinkinterval = 300; // default Delay For Nomal Blinking
+int eep_blinkintervalAddress = 1; // Address Off Interval Holder
+
 ///</blinkers>
 /*
 String SerialInputCommands[] ={"off","on","headlight:on","headlight:off","leftfrontblink","leftbackblink","rightfrontblink",
 "rightbackblink","brake","lefthorn","righthorn","smalllight","multiblink:on:","multiblink:off",
-"lturn:blink:","rturn:blink:","lturnblink:off","rturnblink:off","blinkdanceOn","blinkdanceOff"};
+"lturn:blink:","rturn:blink:","lturnblink:off","rturnblink:off","blinkdanceOn","blinkdanceOff","SetBlinkInterVal:300","engineState"};
 
-String SerialOUTPUTCommands[] ={"off","on","Engine Is OFF","RPM:000"};
+String SerialOUTPUTCommands[] ={"off","on","Engine Is OFF","Engine Is ON","RPM:000"};
 */
 void setup() {
 ///RPM
-pinMode(Signalinput,INPUT);
 //
-
+analogReference(DEFAULT);
   Serial.begin(115200);
   pinMode(headlightPin,OUTPUT);
   pinMode(backLblinkPin,OUTPUT);
@@ -133,33 +145,187 @@ pinMode(Signalinput,INPUT);
   pinMode(BrakeINpin, INPUT);
   pinMode(HornINpin, INPUT);
   pinMode(SignalInputPin, INPUT);
+  /////
+  //clear EEPROM data
+  /*
+for (int i=0; i > EEPROM.length() - 1; i++) {
 
+EEPROM.write(i, 0);
+delay(5);
+}
+Serial.print("deleted");
+*/
 }
 
 void loop() 
 {
-digitalRead(LturnInpin);
+  currentMillis = millis();
+  
+  byte firstcheck = 0;
+  int add = 0;
+  firstcheck = EEPROM[add];
+  if ( firstcheck != 123 )
+  {
+    EEPROM.put(add, 123);
+    delay(5);
+    EEPROM.put(eep_blinkintervalAddress, eep_blinkinterval);
+    delay(5);
+     EEPROM.write(eep_Locator_OF_blinkintervalAddress, eep_blinkintervalAddress);
+  }
+  else 
+  {
+  eep_blinkinterval = EEPROM.get(eep_blinkintervalAddress,eep_blinkinterval);
+
+  }
+
+tone(9, 166);
+///
+  if (digitalRead(HornINpin) == HIGH ) 
+    {
+    
+    //digitalWrite(LhornPin, HIGH);
+   // digitalWrite(RhornPin,HIGH);
+    Serial.print("\nhorn on\n");
+
+
+
+    }
+    else {
+    //digitalWrite(LhornPin, LOW);
+    //digitalWrite(RhornPin,LOW);
+   // Serial.print("\nhorn off\n");
+    }
+//////
+      if (digitalRead(BrakeINpin) == HIGH ) 
+    {
+    
+    digitalWrite(BrakePin, HIGH);
+    digitalWrite(BrakePin,HIGH);
+    Serial.print("\nbrake on\n");
+
+
+
+    }
+    else {
+    digitalWrite(BrakePin, LOW);
+    digitalWrite(BrakePin,LOW);
+   // Serial.print("\nbrake off\n");
+    }
 
 
 
 
 
+  if (digitalRead(HEADLightINpin) == HIGH)
+   {
+    Serial.print("\nHEAD on digital:\n");
 
-     currentMillis = millis();
+    Serial.print(digitalRead(HEADLightINpin));
+    Serial.print("\nHEAD on analog:\n");
+    Serial.print(analogRead(HEADLightINpin));
+
+    digitalWrite(headlightPin, HIGH);
+    headlightFlag = true;
+    
+   }
+
+  if (digitalRead(HEADLightINpin) == LOW ) 
+    {
+      if (headlightFlag == true)
+      {
+    digitalWrite(headlightPin, LOW);
+    Serial.print("\nHEAD off\n");
+    headlightFlag = false;
+      }
+
+
+    }
+/////
+  if (digitalRead(LturnINpin) == HIGH )
+  {
+  Serial.print("\nLEFT on\n");
+  /*bInterval =*/ EEPROM.get(eep_blinkintervalAddress,bInterval);
+ // bInterval *=10;
+   Serial.print("\nLepp:\n");
+   Serial.print(bInterval);
+   Serial.print("\n");
+       blinkerstate = true;
+    lfrontblinkerstate = true;
+    lbackblinkerstate = true;
+  lturnflag = true;
+
+  }
+  if (digitalRead(LturnINpin) == LOW)
+  {
+    if (lturnflag == true)
+    {
+    Serial.print("\nLEFT off\n");
+        digitalWrite(backLblinkPin,LOW);
+      digitalWrite(frontLblinkPin,LOW);
+         blinkerstate = false;
+    lfrontblinkerstate = false;
+    lbackblinkerstate = false;
+    lturnflag = false;
+    }
+ 
+ }
+////
+  if (digitalRead(RturnINpin) == HIGH)
+   {
+     Serial.print("\nR on:\n");
+     bInterval = EEPROM.read(eep_blinkintervalAddress);
+     bInterval *=10;
+        Serial.print("\nRepp:\n");
+   Serial.print(bInterval);
+   Serial.print("\n");
+           blinkerstate = true;
+       rbackblinkerstate = true;
+       rfrontblinkerstate = true;
+       rturnflag = true;
+  
+   }
+   if (digitalRead(RturnINpin) == LOW ) 
+   {
+    if (rturnflag == true)
+    {
+      digitalWrite(backRblinkPin,LOW);
+      digitalWrite(frontRblinkPin,LOW);
+       Serial.print("\nR off:\n");
+       blinkerstate = false;
+       rbackblinkerstate = false;
+       rfrontblinkerstate = false;
+       rturnflag = false;
+    }
+   }
+/////////
+     
   if ((currentMillis - freqPrvmillis) >= 1000)
-           {            
+           {  
+          
+
+            freqPrvmillis =   currentMillis;  
+            
+            
              X=pulseIn(SignalInputPin,HIGH);
              Y=pulseIn(SignalInputPin,LOW);
              Time = X+Y;
              frequency=1000000/Time;
-              if(frequency<=0)
+              if(Time <=0)
               {
-                RPM = frequency * 60 ;
-                Serial.print("RPM:" + RPM);
+                if (engPowerFlag == ENGINE_IS_OFF) engPowerFlag = ENGINE_IS_ON;
+                Serial.print("\n zero:");
+
               }
               else 
                {
-                Serial.print("Engine Is OFF");            
+                                RPM = frequency * 60 ;
+                Serial.print("\n freq:");
+                Serial.print(frequency);
+                Serial.print("\n");
+                Serial.print("\nRPM:");
+                Serial.print(RPM);
+                Serial.print("\n");
+               if (engPowerFlag == ENGINE_IS_ON) engPowerFlag = ENGINE_IS_OFF;           
               }           
           }
 
@@ -170,16 +336,33 @@ digitalRead(LturnInpin);
     }
  if (input == "headlight:on")
      {
- digitalWrite(headlightPin,HIGH);
- //digitalWrite(TailLightPin,HIGH);
+      digitalWrite(headlightPin,HIGH);
+      input ="";
+
      }//////////
 
  //////turn off main lights///////////
-  if (input == "headlight:off")
+  if ((input == "headlight:off"))
        {
-  digitalWrite(headlightPin,LOW);
- //digitalWrite(TailLightPin,LOW);
+        if (headlightFlag ==false)
+        {
+          digitalWrite(headlightPin,LOW);
+          input ="";
+        }
+
        }////////
+  if ((input == "engineState"))
+     {
+        if (engPowerFlag ==ENGINE_IS_OFF)
+        {
+          Serial.print("Engine Is Off");
+          
+        }
+        else {
+        Serial.print("Engine Is ON");
+        }
+        input ="";
+      }////////       
 
  //////turn off All Blinkers ///////////
   if ((input == "lturnblink:off") || (input == "rturnblink:off")  || (input == "multiblink:off")  || (input == "blinkdanceOff") )
@@ -217,7 +400,17 @@ digitalRead(LturnInpin);
     }
   }
  ////////////////////////
+if(input.startsWith("SetBlinkInterVal:"))
+{
 
+  eep_blinkinterval = input.substring(17).toInt();
+if (eep_blinkinterval >0) {
+ EEPROM.update(eep_blinkintervalAddress, eep_blinkinterval);
+
+}
+
+
+}
  ///////Checks For Right Blinkers//////////////////
   if (input.startsWith("rturn:blink:"))
    {
