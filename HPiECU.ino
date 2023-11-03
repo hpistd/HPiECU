@@ -8,11 +8,11 @@
 /        1402/06/01 Created By Hosein Pirani.                                               *
 /                                                                                           *
 /       Modified in  fri. 1402/06/17 from 15:00 To 19:00 (blinkers)                         *
-/       Last modification: fri. 1402/07/14 from 14:00 To 16:35 (RPM...)                     *
+/       Last modification: sat. 1402/08/06 from 14:00 To 16:55(HORN...)                     *
 /                                                                                           *
-/TODO: Complete Horn Func                                                                   *
+/TODO: Complete Horn MOD2 &3 + modify blinkers(remove delay!)                               *
 /TODO: Add Mode For HeadLight (blinker etc)                                                 *
-/TODO: # Buzzer,Emergency PWR,HORN,Serial Communic.                                         *
+/TODO: # Buzzer,Emergency PWR,HORN,SIREN LEDS!,Serial Communic.                             *
 /*******************************************************************************************/
 
 
@@ -47,7 +47,25 @@ float frequency;
 int RPM = 0;
 unsigned long freqPrvmillis = 0;
 ///////////
+///HORN
+short hornbuttonCounter = 1;
+unsigned long delayMillis = 0,hornPrevMillis = 0;
+short modeCcounter = 0;
+short hornCountA=0,hornCountB=0;
+bool horn1Aflag = true, horn1Bflag = false;
+bool hornStateA = false,hornStateB = false;
+bool _hornmodetwostate = true;
+//short modThreedelays = 50; //delay between each cycle of horning in wedding mode
+bool modThreestate = false; // current state of patern. below line is our patern 
+ 
+//->A{on(50)->off(30)} 
+//-> B{on(50)->off(30)} 
+//-> C{on(80)->off(100)} 
+//-> D{on(100)->off(80)} 
+//-> E{on(100)->off(100)} 
+//...
 
+///////////
 /////<blinkers>
 int bInterval = 250; // normal blinkers on/of delay in ms.
 unsigned long  prevMillis = 1000,currentMillis = 0; //for millis();. it used instead of old depricated delay() .
@@ -178,15 +196,17 @@ void loop()
 
 //tone(9, 166);
 ///
-  if (digitalRead(HornINpin) == HIGH ) 
-    {    
-     digitalWrite(LhornPin, HIGH);
-     digitalWrite(RhornPin,HIGH);
-    }
-    else {
-    digitalWrite(LhornPin, LOW);
-    digitalWrite(RhornPin,LOW);   
-    }
+ // if (digitalRead(HornINpin) == HIGH ) 
+  //  {    
+           
+  //  Serial.print("\n horn pressed \n");
+    Horn();
+
+  //  }
+  //  else {
+  //  digitalWrite(LhornPin, LOW);
+ //   digitalWrite(RhornPin,LOW);   
+   // }
 //////brake
       if (digitalRead(BrakeINpin) == HIGH ) 
     {   
@@ -277,8 +297,8 @@ void loop()
           
 
             freqPrvmillis =   currentMillis;             
-             X=pulseIn(SignalInputPin,HIGH);
-             Y=pulseIn(SignalInputPin,LOW);
+            // X=pulseIn(SignalInputPin,HIGH);
+            // Y=pulseIn(SignalInputPin,LOW);
              Time = X+Y;
              frequency=1000000/Time;
               if(Time <=0)
@@ -410,7 +430,8 @@ if (eep_blinkinterval >0) {
    blinkdance = true;
   }
 
- ///toggle the blinkers   
+ ///toggle the blinkers  
+     Horn(); 
  Blink();
 }//loop
 
@@ -665,11 +686,156 @@ void Blink(void)
 
 void Horn ()
 {
+  
+    if (digitalRead(HornINpin) == HIGH)
+    {
+     if (currentMillis - hornPrevMillis > 1000)
+      {
+       hornPrevMillis = currentMillis;
+       hornbuttonCounter = 1;
+      }
+ 
+        switch (hornbuttonCounter)
+       {
+         case 1:
+          //mod1
+          //Serial.print("\n case1 \n");
+          if (hornCountA <=5 && horn1Aflag == true)
+          {            
+              if ((currentMillis - delayMillis) >= 50)
+              {
+                digitalWrite(RhornPin,LOW);
+                delayMillis = currentMillis;
+                hornStateA = !hornStateA;
+                digitalWrite(LhornPin,hornStateA);
+                if (hornStateA == HIGH)
+                {
+                  Serial.print("\n 1A \n");
+                  hornCountA++;
+                  if (hornCountA >=5 )
+                  {
+                    
+                   horn1Aflag = false;
+                   horn1Bflag = true;
+                  }
 
+                 }
+               }
+          }else
+          {
+           if (hornCountB <=5 && horn1Bflag == true )
+           {
+              if (currentMillis - delayMillis >=50)
+              {
+                digitalWrite(LhornPin,LOW);
+                delayMillis = currentMillis;
+                hornStateB =!hornStateB;
+                digitalWrite(RhornPin,hornStateB);
+                 if (hornStateB == HIGH)
+                 {
+                  Serial.print("\n 1B \n");
+                  hornCountB++;
+                  if (hornCountA >= 5 && hornCountB >=5)
+                  {
+                    hornCountA = 0;
+                    hornCountB = 0;
+                   horn1Aflag = true;
+                   horn1Bflag = false;
+                   
+                  }
+                 }
+              }
+           }
+          }                                       
+          break;
+         case 2:
+         mode2top:
+           Serial.print("\n case2 \n");
+          ////mod2
+            if (currentMillis - delayMillis > 100)
+             {
+              delayMillis = currentMillis;
+              if (_hornmodetwostate == HIGH)
+              {
+              digitalWrite(LhornPin,LOW);
+              digitalWrite(RhornPin,HIGH);
+              _hornmodetwostate = false;
+              }else
+               {
+                digitalWrite(RhornPin,LOW);
+                digitalWrite(LhornPin, HIGH);
+                _hornmodetwostate = true;
+               }
+             }
+         break;    
+         case 3:        
+           Serial.print("\n case3 \n");
+          //Mode 3 Wedding Mode ^_^
+          if (currentMillis - delayMillis >= 50 && modThreestate == false)
+          {
+           modThreestate = true;
+           delayMillis = currentMillis;
+           digitalWrite(LhornPin ,modThreestate);
+           digitalWrite(RhornPin, modThreestate);
+          } else if (currentMillis - delayMillis >= 50 && modThreestate == true)
+            {
+              modThreestate = false;
+              delayMillis = currentMillis;
+              digitalWrite(LhornPin,modThreestate);
+              digitalWrite(RhornPin,modThreestate);
+            }else if (currentMillis - delayMillis >=80 && modThreestate == false)
+             {
+              modThreestate = true;
+              delayMillis = currentMillis;
+              digitalWrite(LhornPin,modThreestate);
+              digitalWrite(RhornPin,modThreestate);              
+             } else if (currentMillis - delayMillis >=100 && modThreestate == true)
+               {
+                modThreestate = false;
+                delayMillis = currentMillis;
+              digitalWrite(LhornPin,modThreestate);
+              digitalWrite(RhornPin,modThreestate);                
+               } else if (currentMillis - delayMillis >= 100 && modThreestate == false)
+                 {
+                  modThreestate = true;
+                  delayMillis = currentMillis;
+                  digitalWrite(LhornPin,modThreestate);
+                  digitalWrite(RhornPin,modThreestate);
+                 } else if (currentMillis - delayMillis >=100 && modThreestate ==false)
+                   {
+                    modThreestate = true;
+                    delayMillis = currentMillis;
+                     digitalWrite(LhornPin,modThreestate);
+                     digitalWrite(RhornPin,modThreestate);
+                   } else if (currentMillis - delayMillis >=80 && modThreestate == true)
+                     {
+                      modThreestate = false;
+                      delayMillis = currentMillis;
+                      digitalWrite(LhornPin,modThreestate);
+                      digitalWrite(RhornPin,modThreestate);
+                     } else if (currentMillis - delayMillis >= 100 && modThreestate == false)
+                       {
+                        modThreestate = true;
+                        delayMillis = currentMillis;
+                        digitalWrite(LhornPin,modThreestate);
+                        digitalWrite(RhornPin,modThreestate);
+                       } else if (currentMillis - delayMillis >=80 && modThreestate ==true)
+                         {
+                          modThreestate = false;
+                          delayMillis = currentMillis;
+                          digitalWrite(LhornPin,modThreestate);
+                          digitalWrite(RhornPin,modThreestate);
+                         }
+         break;
+        }
+    }else 
+    {
+     hornbuttonCounter++;
+    } 
+   //digitalWrite(LhornPin,LOW);
+   //digitalWrite(RhornPin,LOW);
+} 
 
-
-
-}
 
 
 
