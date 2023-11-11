@@ -8,9 +8,9 @@
 /        1402/06/01 Created By Hosein Pirani.                                               *
 /                                                                                           *
 /       Modified in  fri. 1402/06/17 from 15:00 To 19:00 (blinkers)                         *
-/       Last modification: sat. 1402/08/19 from 15:05 To 16:55(HORN+blinkers...)            *
+/       Last modification: sat. 1402/08/20 from 10:55 To 13:07(SirenFlashers...)            *
 /                                                                                           *
-/TODO: Complete Siren + LED FLASHERs                                                        *
+/TODO: Complete Siren Serial Command +Test LED FLASHERs                                     *
 /TODO: Add Mode For HeadLight (blinker etc)                                                 *
 /TODO: # Buzzer,Emergency PWR,,SIREN LEDS!,Serial Communic.                                 *
 /*******************************************************************************************/
@@ -22,25 +22,25 @@
 
 
 
-#define headlightPin  2
-#define frontLblinkPin  4
-#define backLblinkPin  5
-#define frontRblinkPin  6
-#define backRblinkPin  7
-#define LhornPin  8
-#define RhornPin  9
-#define RedSPin  10
-#define blueSPin  11
-#define BrakePin  12
-#define SirenPin  A0 /// Used For Swith Between Normal HIFI Speaker And Piezo Buzzer For Siren. 
-#define EMERGENCYShutDownPin A4 /// For Remote ShutDown
+constexpr auto headlightPin = 2;
+constexpr auto frontLblinkPin = 4;
+constexpr auto backLblinkPin = 5;
+constexpr auto frontRblinkPin = 6;
+constexpr auto backRblinkPin = 7;
+constexpr auto LhornPin = 8;
+constexpr auto RhornPin = 9;
+constexpr auto RedSPin = 10;
+constexpr auto blueSPin = 11;
+constexpr auto BrakePin = 12;
+constexpr auto SirenPin = A0; /// Used For Swith Between Normal HIFI Speaker And Piezo Buzzer For Siren. 
+constexpr auto EMERGENCYShutDownPin = A4; /// For Remote ShutDown
 
 // Input Keys
-#define LturnINpin A2
-#define RturnINpin A3
-#define HEADLightINpin A5
-#define BrakeINpin 13
-#define HornINpin 3
+constexpr auto LturnINpin = A2;
+constexpr auto RturnINpin = A3;
+constexpr auto HEADLightINpin = A5;
+constexpr auto BrakeINpin = 13;
+constexpr auto HornINpin = 3;
 #define SignalInputPin A1//for RPM Meter
 
 ///////////RPM Meter
@@ -84,8 +84,8 @@ short danceTwoFrontCounter = 0,danceTwoBackCounter = 0; // blink counters
  int dancerandom =1;// random mode changing NOTE : it should to be Modified To run one After One!.
 short dancecounter =0;// how many times current mode repeated?.
 short stagecounter = 0;// current stage play counter.
-
-String   input = "";
+//
+//normal blink
 bool state = false;
 bool blinkerstate = false;
 bool multiblink = false;
@@ -94,6 +94,17 @@ bool rfrontblinkerstate = false;
 bool lbackblinkerstate = false;
 bool rbackblinkerstate = false;
 bool blinkdance = false;
+//
+// POLICE Siren Blinkers(RED/BLUE)LEDs
+short sirenCaseCounter = 0;// wich case is playing?
+short sirenDanceRedCounter = 0;//how many times RED LEDs toggled
+short sirenDanceBlueCounter = 0;//how many times BLUE LEDs toggled
+short SirenStageCounter = 0;//how Many times Current Case was Repeated? 
+bool sirenDanceRedFLAG = true; //Now, Were We Are?
+bool sirenDanceBlueFLAG = false;//Now, Were We Are?
+bool sirenDanceREDState = false;//Current State Of OUTPUT Pin(High Or Low)
+bool sirenDanceBLUEState = false;//Current State Of OUTPUT Pin(High Or Low)
+unsigned long sirenDancePrevMillis = 0;//Last Toggle Time
 //flags
 #define ENGINE_IS_OFF false //
 #define ENGINE_IS_ON true//
@@ -103,6 +114,7 @@ bool headlightFlag = false, lturnflag = false, rturnflag = false, brakeflag = fa
 int eep_blinkinterval = 300; // default Delay For Nomal Blinking
 int eep_blinkintervalAddress = 1; // Address Off Interval Holder
 ///</blinkers>
+String   input = "";
 /*
 String SerialInputCommands[] ={"off","on","headlight:on","headlight:off","leftfrontblink","leftbackblink","rightfrontblink",
 "rightbackblink","brake","lefthorn","righthorn","smalllight","multiblink:on:","multiblink:off",
@@ -679,7 +691,7 @@ void Horn ()
         }else if ((hornclicks == 2) && (currentMillis - buttonPrevMillis) > 300)
         {
           
-          Serial.print("\n case1 \n");
+          Serial.print("\n case2 \n");
           if (hornCountA <=5 && horn1Aflag == true)
           {            
               if ((currentMillis - delayMillis) >= 50)
@@ -731,7 +743,7 @@ void Horn ()
         }else if ((hornclicks == 3) && (currentMillis - buttonPrevMillis) > 300)
         {
         
-           Serial.print("\n case2 \n");
+           Serial.print("\n case3 \n");
           ////mod2
             if (currentMillis - delayMillis > 100)
              {
@@ -751,7 +763,7 @@ void Horn ()
          //hornclicks = 0;
         }else if ((hornclicks == 4) && (currentMillis - buttonPrevMillis) > 300)
         {       
-           //Serial.print("\n case3 \n");
+           Serial.print("\n case4 \n");
           //Mode 3 Wedding Mode ^_^
           if (currentMillis - delayMillis >= 100 && modThreestate == false && modeCstage == 1)
           {
@@ -875,7 +887,136 @@ void checkHornKey()
 //Serial.print(hornclicks);
 }
 
+/// <summary>
+/// Police Siren Lights turns on By MultiBlinker key Or HPiUI App 
+/// </summary>
+void blinkSiren()
+    {
+    switch (sirenCaseCounter)
+        {
+        case 1: 
 
+
+            Serial.print("\n mod1 \n");
+            if (sirenDanceRedCounter <= 5 && sirenDanceRedFLAG == true)
+                {
+                if ((currentMillis - sirenDancePrevMillis) >= 50)
+                    {
+                    digitalWrite(blueSPin, LOW);//turn off the blues
+                   
+                    sirenDancePrevMillis = currentMillis;
+                    sirenDanceREDState = !sirenDanceREDState;
+                    digitalWrite(RedSPin, sirenDanceREDState);//toggle the 
+                    
+                    if (sirenDanceREDState == HIGH)
+                        {
+                        Serial.print("\n 1A \n");
+                        sirenDanceRedCounter++;
+                        if (sirenDanceRedCounter >= 5)
+                            {
+
+                            sirenDanceRedFLAG = false;
+                            sirenDanceBlueFLAG = true;
+                            }
+
+                        }
+                    }
+                } else
+                {
+                if (sirenDanceBlueCounter <= 5 && sirenDanceBlueFLAG == true)
+                    {
+                    if (currentMillis - sirenDancePrevMillis >= 50)
+                        {
+                        digitalWrite(RedSPin, LOW);//turn off the reds
+                      
+                        sirenDancePrevMillis = currentMillis;
+                        sirenDanceBLUEState = !sirenDanceBLUEState;
+                        digitalWrite(blueSPin, sirenDanceBLUEState);
+                       
+                        if (sirenDanceBLUEState == HIGH)
+                            {
+                            Serial.print("\n 1B \n");
+                            sirenDanceBlueCounter++;
+                            if (sirenDanceRedCounter >= 5 && sirenDanceBlueCounter >= 5)
+                                {
+                                sirenDanceRedCounter = 0;
+                                sirenDanceBlueCounter = 0;
+                                sirenDanceRedFLAG = true;
+                                sirenDanceBlueFLAG = false;
+                                SirenStageCounter++;
+                                if (SirenStageCounter >= 5)
+                                    {
+                                    SirenStageCounter = 0;
+                                    sirenCaseCounter++;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            break;
+        case 2:
+            Serial.print("\n mod1 \n");
+            if (sirenDanceRedCounter <= 5 && sirenDanceRedFLAG == true)
+                {
+                if ((currentMillis - sirenDancePrevMillis) >= 50)
+                    {
+                    digitalWrite(blueSPin, LOW);//turn off the blues
+
+                    sirenDancePrevMillis = currentMillis;
+                    sirenDanceREDState = !sirenDanceREDState;
+                    digitalWrite(RedSPin, sirenDanceREDState);//toggle the 
+
+                    if (sirenDanceREDState == HIGH)
+                        {
+                        Serial.print("\n 1A \n");
+                        sirenDanceRedCounter++;
+                        if (sirenDanceRedCounter >= 5)
+                            {
+
+                            sirenDanceRedFLAG = false;
+                            sirenDanceBlueFLAG = true;
+                            }
+
+                        }
+                    }
+                } else
+                {
+                if (sirenDanceBlueCounter <= 5 && sirenDanceBlueFLAG == true)
+                    {
+                    if (currentMillis - sirenDancePrevMillis >= 50)
+                        {
+                        digitalWrite(RedSPin, LOW);//turn off  red and blues
+                        digitalWrite(blueSPin, LOW);//
+                        sirenDancePrevMillis = currentMillis;
+                        //because this code is copy-Pasted from previous case, Below Lines is unnecessary.
+                        //they should be Modified!
+                        // we should write code for waiting for 1000millisecond 
+                       // sirenDanceBLUEState = !sirenDanceBLUEState;
+                        //if (sirenDanceBLUEState == HIGH)
+                           // {
+                            Serial.print("\n 1B \n");
+                            sirenDanceBlueCounter++;
+                            if (sirenDanceRedCounter >= 5 && sirenDanceBlueCounter >= 5)
+                                {
+                                sirenDanceRedCounter = 0;
+                                sirenDanceBlueCounter = 0;
+                                sirenDanceRedFLAG = true;
+                                sirenDanceBlueFLAG = false;
+                                SirenStageCounter++;
+                                if (SirenStageCounter >= 10)///because every stage runs two times for toggle
+                                    {
+                                    SirenStageCounter = 0;
+                                    sirenCaseCounter=1;
+                                    }
+                                }
+                           // }
+                        }
+                    }
+                }
+            break;
+        }
+    }
 
 
 
