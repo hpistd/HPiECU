@@ -8,18 +8,18 @@
 /        1402/06/01 Created By Hosein Pirani.                                               *
 /                                                                                           *
 /       Modified in  fri. 1402/06/17 from 15:00 To 19:00 (blinkers)                         *
-/       Last modification: sat. 1402/08/20 from 10:55 To 13:07(SirenFlashers...)            *
+/       Last modification: sat. 1402/08/20 from 10:55 To 16:07(SirenFlashers,AUDIO,serial)  *
 /                                                                                           *
-/TODO: Complete Siren Serial Command +Test LED FLASHERs                                     *
+/TODO: Test LED FLASHERs                                                                    *
 /TODO: Add Mode For HeadLight (blinker etc)                                                 *
-/TODO: # Buzzer,Emergency PWR,,SIREN LEDS!,Serial Communic.                                 *
+/TODO: ,Emergency PWR,,Serial Communic. RPM Meter                                           *
 /*******************************************************************************************/
 
 
 #include <EEPROM.h>
 
 
-
+//pins A6 - A7 is curently unused.
 
 
 constexpr auto headlightPin = 2;
@@ -32,7 +32,7 @@ constexpr auto RhornPin = 9;
 constexpr auto RedSPin = 10;
 constexpr auto blueSPin = 11;
 constexpr auto BrakePin = 12;
-constexpr auto SirenPin = A0; /// Used For Swith Between Normal HIFI Speaker And Piezo Buzzer For Siren. 
+constexpr auto AudioSwitcherPin = A0; /// Used For Swith Between Normal HIFI Speaker And Piezo Buzzer For Siren. 
 constexpr auto EMERGENCYShutDownPin = A4; /// For Remote ShutDown
 
 // Input Keys
@@ -41,7 +41,7 @@ constexpr auto RturnINpin = A3;
 constexpr auto HEADLightINpin = A5;
 constexpr auto BrakeINpin = 13;
 constexpr auto HornINpin = 3;
-#define SignalInputPin A1//for RPM Meter
+constexpr auto SignalInputPin = A1;//for RPM Meter
 
 ///////////RPM Meter
 int X;
@@ -105,6 +105,7 @@ bool sirenDanceBlueFLAG = false;//Now, Were We Are?
 bool sirenDanceREDState = false;//Current State Of OUTPUT Pin(High Or Low)
 bool sirenDanceBLUEState = false;//Current State Of OUTPUT Pin(High Or Low)
 unsigned long sirenDancePrevMillis = 0;//Last Toggle Time
+bool m_bdoSiren = false;//Serial Command is received? so Blink.
 //flags
 #define ENGINE_IS_OFF false //
 #define ENGINE_IS_ON true//
@@ -117,10 +118,10 @@ int eep_blinkintervalAddress = 1; // Address Off Interval Holder
 String   input = "";
 /*
 String SerialInputCommands[] ={"off","on","headlight:on","headlight:off","leftfrontblink","leftbackblink","rightfrontblink",
-"rightbackblink","brake","lefthorn","righthorn","smalllight","multiblink:on:","multiblink:off",
-"lturn:blink:","rturn:blink:","lturnblink:off","rturnblink:off","blinkdanceOn","blinkdanceOff","SetBlinkInterVal:300","engineState"};
+"rightbackblink","brake","lefthorn","righthorn","smalllight","DoSirenLight","TurnOffSiren","multiblink:on:","multiblink:off",
+"lturn:blink:","rturn:blink:","lturnblink:off","rturnblink:off","blinkdanceOn","blinkdanceOff","SetBlinkInterVal:300","engineState","EMERGENCYSHOTDOWN"};
 
-String SerialOUTPUTCommands[] ={"off","on","Engine Is OFF","Engine Is ON","RPM:000"};
+String SerialOUTPUTCommands[] ={"off","on","Engine Is OFF","Engine Is ON","RPM:000,SmallLight,Uplight,DownLight,UPlightBlink"};
 */
 void setup() 
 {
@@ -137,7 +138,7 @@ void setup()
   pinMode(RhornPin,OUTPUT);
   pinMode(blueSPin,OUTPUT);
   pinMode(RedSPin,OUTPUT);
-  pinMode(SirenPin,OUTPUT);
+  pinMode(AudioSwitcherPin,OUTPUT);
   pinMode(EMERGENCYShutDownPin, OUTPUT);
   ///Inputs
   pinMode(LturnINpin, INPUT);
@@ -311,6 +312,26 @@ void loop()
         }
         input ="";
       }////////       
+   if (input == "DoSirenLight")
+       {
+       m_bdoSiren = true;
+       input = "";
+       blinkSiren();
+
+       }
+   if (input == "TurnOffSiren")
+       {
+       m_bdoSiren = false;
+       input = "";
+       }
+   if (input == "BuzzerToSpeaker")
+       {
+       toggleSpeakerPin(false);
+       }
+   if (input == "speakerToBuzzer")
+       {
+       toggleSpeakerPin(true);
+       }
     //////turn off All Blinkers ///////////
   if ((input == "lturnblink:off") || (input == "rturnblink:off")  || (input == "multiblink:off")  || (input == "blinkdanceOff") )
   {
@@ -892,109 +913,113 @@ void checkHornKey()
 /// </summary>
 void blinkSiren()
     {
-    switch (sirenCaseCounter)
-        {
-        case 1: 
+    if (m_bdoSiren)
+    {
 
 
-            Serial.print("\n mod1 \n");
-            if (sirenDanceRedCounter <= 5 && sirenDanceRedFLAG == true)
-                {
-                if ((currentMillis - sirenDancePrevMillis) >= 50)
+          switch (sirenCaseCounter)
+          {
+            case 1:
+
+
+                Serial.print("\n mod1 \n");
+                if (sirenDanceRedCounter <= 5 && sirenDanceRedFLAG == true)
                     {
-                    digitalWrite(blueSPin, LOW);//turn off the blues
-                   
-                    sirenDancePrevMillis = currentMillis;
-                    sirenDanceREDState = !sirenDanceREDState;
-                    digitalWrite(RedSPin, sirenDanceREDState);//toggle the 
-                    
-                    if (sirenDanceREDState == HIGH)
+                    if ((currentMillis - sirenDancePrevMillis) >= 50)
                         {
-                        Serial.print("\n 1A \n");
-                        sirenDanceRedCounter++;
-                        if (sirenDanceRedCounter >= 5)
-                            {
+                        digitalWrite(blueSPin, LOW);//turn off the blues
 
-                            sirenDanceRedFLAG = false;
-                            sirenDanceBlueFLAG = true;
-                            }
-
-                        }
-                    }
-                } else
-                {
-                if (sirenDanceBlueCounter <= 5 && sirenDanceBlueFLAG == true)
-                    {
-                    if (currentMillis - sirenDancePrevMillis >= 50)
-                        {
-                        digitalWrite(RedSPin, LOW);//turn off the reds
-                      
                         sirenDancePrevMillis = currentMillis;
-                        sirenDanceBLUEState = !sirenDanceBLUEState;
-                        digitalWrite(blueSPin, sirenDanceBLUEState);
-                       
-                        if (sirenDanceBLUEState == HIGH)
+                        sirenDanceREDState = !sirenDanceREDState;
+                        digitalWrite(RedSPin, sirenDanceREDState);//toggle the 
+
+                        if (sirenDanceREDState == HIGH)
                             {
-                            Serial.print("\n 1B \n");
-                            sirenDanceBlueCounter++;
-                            if (sirenDanceRedCounter >= 5 && sirenDanceBlueCounter >= 5)
+                            Serial.print("\n 1A \n");
+                            sirenDanceRedCounter++;
+                            if (sirenDanceRedCounter >= 5)
                                 {
-                                sirenDanceRedCounter = 0;
-                                sirenDanceBlueCounter = 0;
-                                sirenDanceRedFLAG = true;
-                                sirenDanceBlueFLAG = false;
-                                SirenStageCounter++;
-                                if (SirenStageCounter >= 5)
+
+                                sirenDanceRedFLAG = false;
+                                sirenDanceBlueFLAG = true;
+                                }
+
+                            }
+                        }
+                    } else
+                    {
+                    if (sirenDanceBlueCounter <= 5 && sirenDanceBlueFLAG == true)
+                        {
+                        if (currentMillis - sirenDancePrevMillis >= 50)
+                            {
+                            digitalWrite(RedSPin, LOW);//turn off the reds
+
+                            sirenDancePrevMillis = currentMillis;
+                            sirenDanceBLUEState = !sirenDanceBLUEState;
+                            digitalWrite(blueSPin, sirenDanceBLUEState);
+
+                            if (sirenDanceBLUEState == HIGH)
+                                {
+                                Serial.print("\n 1B \n");
+                                sirenDanceBlueCounter++;
+                                if (sirenDanceRedCounter >= 5 && sirenDanceBlueCounter >= 5)
                                     {
-                                    SirenStageCounter = 0;
-                                    sirenCaseCounter++;
+                                    sirenDanceRedCounter = 0;
+                                    sirenDanceBlueCounter = 0;
+                                    sirenDanceRedFLAG = true;
+                                    sirenDanceBlueFLAG = false;
+                                    SirenStageCounter++;
+                                    if (SirenStageCounter >= 5)
+                                        {
+                                        SirenStageCounter = 0;
+                                        sirenCaseCounter++;
+                                        }
                                     }
                                 }
                             }
                         }
                     }
-                }
-            break;
-        case 2:
-            Serial.print("\n mod1 \n");
-            if (sirenDanceRedCounter <= 5 && sirenDanceRedFLAG == true)
-                {
-                if ((currentMillis - sirenDancePrevMillis) >= 50)
+                    break;
+            case 2:
+                Serial.print("\n mod1 \n");
+                if (sirenDanceRedCounter <= 5 && sirenDanceRedFLAG == true)
                     {
-                    digitalWrite(blueSPin, LOW);//turn off the blues
-
-                    sirenDancePrevMillis = currentMillis;
-                    sirenDanceREDState = !sirenDanceREDState;
-                    digitalWrite(RedSPin, sirenDanceREDState);//toggle the 
-
-                    if (sirenDanceREDState == HIGH)
+                    if ((currentMillis - sirenDancePrevMillis) >= 50)
                         {
-                        Serial.print("\n 1A \n");
-                        sirenDanceRedCounter++;
-                        if (sirenDanceRedCounter >= 5)
-                            {
+                        digitalWrite(blueSPin, LOW);//turn off the blues
 
-                            sirenDanceRedFLAG = false;
-                            sirenDanceBlueFLAG = true;
-                            }
-
-                        }
-                    }
-                } else
-                {
-                if (sirenDanceBlueCounter <= 5 && sirenDanceBlueFLAG == true)
-                    {
-                    if (currentMillis - sirenDancePrevMillis >= 50)
-                        {
-                        digitalWrite(RedSPin, LOW);//turn off  red and blues
-                        digitalWrite(blueSPin, LOW);//
                         sirenDancePrevMillis = currentMillis;
-                        //because this code is copy-Pasted from previous case, Below Lines is unnecessary.
-                        //they should be Modified!
-                        // we should write code for waiting for 1000millisecond 
-                       // sirenDanceBLUEState = !sirenDanceBLUEState;
-                        //if (sirenDanceBLUEState == HIGH)
-                           // {
+                        sirenDanceREDState = !sirenDanceREDState;
+                        digitalWrite(RedSPin, sirenDanceREDState);//toggle the 
+
+                        if (sirenDanceREDState == HIGH)
+                            {
+                            Serial.print("\n 1A \n");
+                            sirenDanceRedCounter++;
+                            if (sirenDanceRedCounter >= 5)
+                                {
+
+                                sirenDanceRedFLAG = false;
+                                sirenDanceBlueFLAG = true;
+                                }
+
+                            }
+                        }
+                    } else
+                    {
+                    if (sirenDanceBlueCounter <= 5 && sirenDanceBlueFLAG == true)
+                        {
+                        if (currentMillis - sirenDancePrevMillis >= 50)
+                            {
+                            digitalWrite(RedSPin, LOW);//turn off  red and blues
+                            digitalWrite(blueSPin, LOW);//
+                            sirenDancePrevMillis = currentMillis;
+                            //because this code is copy-Pasted from previous case, Below Lines is unnecessary.
+                            //they should be Modified!
+                            // we should write code for waiting for 1000millisecond 
+                           // sirenDanceBLUEState = !sirenDanceBLUEState;
+                            //if (sirenDanceBLUEState == HIGH)
+                               // {
                             Serial.print("\n 1B \n");
                             sirenDanceBlueCounter++;
                             if (sirenDanceRedCounter >= 5 && sirenDanceBlueCounter >= 5)
@@ -1007,18 +1032,36 @@ void blinkSiren()
                                 if (SirenStageCounter >= 10)///because every stage runs two times for toggle
                                     {
                                     SirenStageCounter = 0;
-                                    sirenCaseCounter=1;
+                                    sirenCaseCounter = 1;
                                     }
                                 }
-                           // }
+                            // }
+                            }
                         }
                     }
-                }
-            break;
+                    break;
+          }
+    } else
+    {
+    digitalWrite(RedSPin, LOW);
+    digitalWrite(blueSPin, LOW);
+    }
+}
+
+
+/// <summary>
+/// toggles Audio Out Pin bitween Normal Speaker For Playing etc Music and Buzzer For Play Siren Sounds.
+/// </summary>
+/// <param name="ToBuzzer"></param>
+/// <bool ToBuzzer>  determinates  wich one should be actived(buzz Or spk) 
+void toggleSpeakerPin(bool ToBuzzer)
+    {
+    if (ToBuzzer)
+        {
+        digitalWrite(AudioSwitcherPin, LOW);
+        } else
+        {
+        digitalWrite(AudioSwitcherPin, HIGH);
         }
     }
-
-
-
-
 
