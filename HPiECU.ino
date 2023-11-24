@@ -8,11 +8,11 @@
 /        1402/06/01 Created By Hosein Pirani.                                               *
 /                                                                                           *
 /       Modified in  fri. 1402/06/17 from 15:00 To 19:00 (blinkers)                         *
-/       Last modification: sat. 1402/08/20 from 10:55 To 16:07(SirenFlashers,AUDIO,serial)  *
+/       Last modification: sat. 1402/08/27 from 12:55 To 16:07(fixed some bugs:serial,blink)*
 /                                                                                           *
 /TODO: Test LED FLASHERs                                                                    *
-/TODO: Add Mode For HeadLight (blinker etc)                                                 *
-/TODO: ,Emergency PWR,,Serial Communic. RPM Meter                                           *
+/TODO: Add Battery voltage Level indicator                                                  *
+/TODO: ,fix if() bug on loop(),,Serial Communic.edit RPM Meter               *
 /*******************************************************************************************/
 
 
@@ -23,12 +23,12 @@
 
 
 constexpr auto headlightPin = 2;
-constexpr auto frontLblinkPin = 4;
-constexpr auto backLblinkPin = 5;
-constexpr auto frontRblinkPin = 6;
-constexpr auto backRblinkPin = 7;
-constexpr auto LhornPin = 8;
-constexpr auto RhornPin = 9;
+constexpr auto frontLeftBlinkPin = 4;
+constexpr auto backLeftBlinkPin = 5;
+constexpr auto frontRightBlinkPin = 6;
+constexpr auto backRightBlinkPin = 7;
+constexpr auto LeftHornPin = 8;
+constexpr auto RightHornPin = 9;
 constexpr auto RedSPin = 10;
 constexpr auto blueSPin = 11;
 constexpr auto BrakePin = 12;
@@ -41,15 +41,22 @@ constexpr auto RturnINpin = A3;
 constexpr auto HEADLightINpin = A5;
 constexpr auto BrakeINpin = 13;
 constexpr auto HornINpin = 3;
-constexpr auto SignalInputPin = A1;//for RPM Meter
+constexpr auto VBattIN = A1;//for Measuring Battery Voltage for 15v -> r1 = 4.7k , r2 = 2.4k output = 5v2 max. for 12 v 4.7k ,6.8k
 
 ///////////RPM Meter
-int X;
-int Y;
-float Time;
-float frequency;
+bool MeasEnd = 0;
+uint16_t T1OVF_Counter = 0;
+unsigned long input_Rissing_time = 0, input_Falling_time = 0, input_TOP_time = 0, Freq = 0;
+const unsigned long Timer1_prescaler_freq = 250000;//2000000
+unsigned long rpmPrvmillis = 0;
 int RPM = 0;
-unsigned long freqPrvmillis = 0;
+#ifdef __AVR_ATmega16__///because im testing it on both atmega16 and atmega328
+#define TIMERMASK TIMSK
+#define RPM_PULSE_IN 14
+#else 
+#define TIMERMASK TIMSK1
+#define RPM_PULSE_IN 12
+#endif
 ///////////
 ///HORN
 unsigned short debounceDelay = 200;
@@ -57,43 +64,35 @@ unsigned long delayMillis = 0,hornPrevMillis = 0, buttonPrevMillis = 0, lastDebo
 short hornclicks = 0;
 bool buttunstate= false;
 //HORN modes
-short modeCcounter = 0;
 short hornCountA=0,hornCountB=0;
 bool horn1Aflag = true, horn1Bflag = false;
 bool hornStateA = false,hornStateB = false;
-bool _hornmodetwostate = true;
-//short modThreedelays = 50; //delay between each cycle of horning in wedding mode
-bool modThreestate = false; // current state of patern. below line is our patern 
-short modeCstage  =1;
-//->A{on(50)->off(30)} 
-//-> B{on(50)->off(30)} 
-//-> C{on(80)->off(100)} 
-//-> D{on(100)->off(80)} 
-//-> E{on(100)->off(100)} 
-//bebebbbbbeebbbbbeeebbbbbeeeeeb...
-
+bool hornModeTwoState = true;
+bool hornModThreeState = false; // current state of patern. below line is our patern 
+short hornModeCStage  =1;
 
 ///////////
 /////<blinkers>
-unsigned int bInterval = 250; // normal blinkers on/of delay in ms.
+unsigned int blinkInterval = 250; // normal blinkers on/of delay in ms.
 unsigned long  prevMillis = 1000,currentMillis = 0; //for millis();. it used instead of old depricated delay() .
 ///MODE2
 bool danceTwoFrontFlag = true,danceTwoBackFlag = false,danceTwoFrontState = false,danceTwoBackState = false; // states
 short danceTwoFrontCounter = 0,danceTwoBackCounter = 0; // blink counters
 ///
- int dancerandom =1;// random mode changing NOTE : it should to be Modified To run one After One!.
-short dancecounter =0;// how many times current mode repeated?.
+ unsigned short danceMode =1;// current Mode
+short danceblinkcounter =0;// how many times current mode repeated?.
 short stagecounter = 0;// current stage play counter.
 //
 //normal blink
 bool state = false;
 bool blinkerstate = false;
 bool multiblink = false;
-bool lfrontblinkerstate = false;
-bool rfrontblinkerstate = false;
-bool lbackblinkerstate = false;
-bool rbackblinkerstate = false;
+bool Leftfrontblinkerstate = false;
+bool Rightfrontblinkerstate = false;
+bool Leftbackblinkerstate = false;
+bool Rightbackblinkerstate = false;
 bool blinkdance = false;
+
 //
 // POLICE Siren Blinkers(RED/BLUE)LEDs
 short sirenCaseCounter = 0;// wich case is playing?
@@ -105,37 +104,71 @@ bool sirenDanceBlueFLAG = false;//Now, Were We Are?
 bool sirenDanceREDState = false;//Current State Of OUTPUT Pin(High Or Low)
 bool sirenDanceBLUEState = false;//Current State Of OUTPUT Pin(High Or Low)
 unsigned long sirenDancePrevMillis = 0;//Last Toggle Time
-bool m_bdoSiren = false;//Serial Command is received? so Blink.
+bool m_doSiren = false;//Serial Command is received? so Blink.
 //flags
-#define ENGINE_IS_OFF false //
-#define ENGINE_IS_ON true//
+constexpr auto ENGINE_IS_OFF = false;
+constexpr auto ENGINE_IS_ON = true ;
 /// input keys Flag
 bool headlightFlag = false, lturnflag = false, rturnflag = false, brakeflag = false, engPowerFlag = ENGINE_IS_OFF; //parsing keys
 //EEPROM DATA
 int eep_blinkinterval = 300; // default Delay For Nomal Blinking
 int eep_blinkintervalAddress = 1; // Address Off Interval Holder
 ///</blinkers>
+//Serial
 String   input = "";
+bool commandFromUI = false;///  any blink command comes from UI (?)
 /*
 String SerialInputCommands[] ={"off","on","headlight:on","headlight:off","leftfrontblink","leftbackblink","rightfrontblink",
-"rightbackblink","brake","lefthorn","righthorn","smalllight","DoSirenLight","TurnOffSiren","multiblink:on:","multiblink:off",
-"lturn:blink:","rturn:blink:","lturnblink:off","rturnblink:off","blinkdanceOn","blinkdanceOff","SetBlinkInterVal:300","engineState","EMERGENCYSHOTDOWN"};
+"rightbackblink","brake","lefthorn","righthorn","smalllight","DoSirenLight","TurnOffSiren","multiblink:on","multiblink:off",
+"lturn:blink","rturn:blink","lturnblink:off","rturnblink:off","blinkdanceOn","blinkdanceOff","SetBlinkInterVal:300","engineState","EMERGENCYSHOTDOWN","AllowStart"};
 
-String SerialOUTPUTCommands[] ={"off","on","Engine Is OFF","Engine Is ON","RPM:000,SmallLight,Uplight,DownLight,UPlightBlink"};
+String SerialOUTPUTCommands[] ={"off","on","Engine Is OFF(EOF)","Engine Is ON(EON)","RPM:000,SmallLight,Uplight,DownLight,UPlightBlink","L","l","R","r","M","m"};
 */
+ISR(TIMER1_OVF_vect)
+    {
+    T1OVF_Counter++;///RPM Meter
+    }
+
+ISR(TIMER1_CAPT_vect)
+    {
+    if (!MeasEnd)
+        {
+        input_Rissing_time = ICR1;
+        MeasEnd = 1;
+        } else
+        {
+        input_Falling_time = ICR1;
+        if (T1OVF_Counter)
+            {
+            input_TOP_time = input_Falling_time + (65536 * T1OVF_Counter) - input_Rissing_time;
+            } else
+            {
+            input_TOP_time = input_Falling_time - input_Rissing_time;
+            }
+            if (input_TOP_time == 0)
+                {
+                Freq = 0;
+                } else
+                {
+                Freq = (Timer1_prescaler_freq / input_TOP_time);
+                }
+                T1OVF_Counter = 0;
+                MeasEnd = 0;
+        }
+    }
 void setup() 
 {
   analogReference(DEFAULT);
   Serial.begin(115200);
   //Outputs
   pinMode(headlightPin,OUTPUT);
-  pinMode(backLblinkPin,OUTPUT);
-  pinMode(frontLblinkPin,OUTPUT);
-  pinMode(backRblinkPin,OUTPUT);
-  pinMode(frontRblinkPin,OUTPUT);
+  pinMode(backLeftBlinkPin,OUTPUT);
+  pinMode(frontLeftBlinkPin,OUTPUT);
+  pinMode(backRightBlinkPin,OUTPUT);
+  pinMode(frontRightBlinkPin,OUTPUT);
   pinMode(BrakePin,OUTPUT);
-  pinMode(LhornPin,OUTPUT);
-  pinMode(RhornPin,OUTPUT);
+  pinMode(LeftHornPin,OUTPUT);
+  pinMode(RightHornPin,OUTPUT);
   pinMode(blueSPin,OUTPUT);
   pinMode(RedSPin,OUTPUT);
   pinMode(AudioSwitcherPin,OUTPUT);
@@ -146,9 +179,14 @@ void setup()
   pinMode(HEADLightINpin, INPUT);
   pinMode(BrakeINpin, INPUT);
   pinMode(HornINpin, INPUT);
-  pinMode(SignalInputPin, INPUT);
+  pinMode(VBattIN, INPUT);
   ///Horn Button Listener
   attachInterrupt(digitalPinToInterrupt(HornINpin), checkHornKey, CHANGE);
+  //RPM Meter
+  TCCR1A = 0;           // Init Timer1A
+  TCCR1B = 0;           // Init Timer1B
+  TCCR1B |= B11000011;  // (B11000010) Internal Clock, Prescaler = 16, ICU Filter EN, ICU Pin RISING
+  TIMERMASK |= B00100001;  // Enable Timer OVF & CAPT Interrupts
 }
 
 void loop() 
@@ -190,9 +228,8 @@ void loop()
     digitalWrite(headlightPin, HIGH);
     headlightFlag = true;
     
-   }
+   }else  //headLight Off
 
-  if (digitalRead(HEADLightINpin) == LOW ) 
     {
       if (headlightFlag == true)
       {
@@ -206,90 +243,123 @@ void loop()
 /////left turn
   if (digitalRead(LturnINpin) == HIGH )
   {
-
-    EEPROM.get(eep_blinkintervalAddress,bInterval);
-  
+      if(!blinkInterval)EEPROM.get(eep_blinkintervalAddress,blinkInterval);
+      Rightfrontblinkerstate = false;//turn off
+      Rightbackblinkerstate = false;// the others
+      if (blinkdance) Serial.print("danceOff");   //UpdateUI  
+      blinkdance = false;//off
+      multiblink = false;//off
+      //
 
        blinkerstate = true;
-    lfrontblinkerstate = true;
-    lbackblinkerstate = true;
+    Leftfrontblinkerstate = true;
+    Leftbackblinkerstate = true;
      lturnflag = true;
 
-  }
-  if (digitalRead(LturnINpin) == LOW)
+  }  else // left turn OFF
+
+
   {
     if (lturnflag == true)
     {
      
-        digitalWrite(backLblinkPin,LOW);
-      digitalWrite(frontLblinkPin,LOW);
+        digitalWrite(backLeftBlinkPin,LOW);
+      digitalWrite(frontLeftBlinkPin,LOW);
          blinkerstate = false;
-      lfrontblinkerstate = false;
-      lbackblinkerstate = false;
+      Leftfrontblinkerstate = false;
+      Leftbackblinkerstate = false;
+      multiblink = false;
       lturnflag = false;
+      if (blinkdance) Serial.print("danceOff");   //UpdateUI  
+      blinkdance = false;
     }
  
  }
 ////right turn
   if (digitalRead(RturnINpin) == HIGH)
    {
-    EEPROM.get(eep_blinkintervalAddress,bInterval);
+      if (!blinkInterval)EEPROM.get(eep_blinkintervalAddress,blinkInterval);//interval
+      // check for multiblink
+      if ((Leftfrontblinkerstate == true) && (Leftbackblinkerstate == true))
+      {
+          Leftfrontblinkerstate = false;
+          Rightfrontblinkerstate = false;
+          Rightbackblinkerstate = false;
+          Rightfrontblinkerstate = false;
+          if (blinkdance) Serial.print("danceOff");   //UpdateUI  
+          blinkdance = false;//
+          //
+          blinkerstate = true;//
+          multiblink = true;
+      } else
+      {
+          multiblink = false;      ///the
+          digitalWrite(backLeftBlinkPin, LOW);//other
+          digitalWrite(frontLeftBlinkPin, LOW);//blinkers
+          input = ""; //clear the buffer
+          if (blinkdance) Serial.print("danceOff");   //UpdateUI  
+          blinkdance = false;//
+          blinkerstate = true;//
+          Rightbackblinkerstate = true;//same as above 
+          Rightfrontblinkerstate = true;//turn off other
+          rturnflag = true;
+      }
   
-           blinkerstate = true;
-       rbackblinkerstate = true;
-       rfrontblinkerstate = true;
-       rturnflag = true;
-  
-   }
-   if (digitalRead(RturnINpin) == LOW ) 
+   } else // Right Turn off
    {
     if (rturnflag == true)
     {
-      digitalWrite(backRblinkPin,LOW);
-      digitalWrite(frontRblinkPin,LOW);
+      digitalWrite(backRightBlinkPin,LOW);
+      digitalWrite(frontRightBlinkPin,LOW);
        blinkerstate = false;
-       rbackblinkerstate = false;
-       rfrontblinkerstate = false;
+       Rightbackblinkerstate = false;
+       Rightfrontblinkerstate = false;
+       multiblink = false;
        rturnflag = false;
+       if (blinkdance) Serial.print("danceOff");   //UpdateUI  
+       blinkdance = false;
     }
    }
 /////////RPM METER   
-  if ((currentMillis - freqPrvmillis) >= 1000)
+  if ((currentMillis - rpmPrvmillis) >= 1000)
            {  
-          
-
-            freqPrvmillis =   currentMillis;             
-            // X=pulseIn(SignalInputPin,HIGH);
-            // Y=pulseIn(SignalInputPin,LOW);
-             Time = X+Y;
-             frequency=1000000/Time;
-              if(Time <=0)
-              {                
-                 if (engPowerFlag == ENGINE_IS_ON) engPowerFlag = ENGINE_IS_OFF;   
-              }
-              else 
+            rpmPrvmillis =   currentMillis;             
+              if(Freq <=0)
+              {  
+                  RPM = 0;
+                  if (engPowerFlag == ENGINE_IS_ON)
+                  {
+                      engPowerFlag = ENGINE_IS_OFF;
+                      Serial.print("EOF");
+                  }
+              }else 
                {
-                  RPM = frequency * 60 ;
-                Serial.print("\n freq:");
-                Serial.print(frequency);
-                Serial.print("\n");
-                Serial.print("\nRPM:");
-                Serial.print(RPM);
-                Serial.print("\n");
-                if (engPowerFlag == ENGINE_IS_OFF) engPowerFlag = ENGINE_IS_ON;       
+                  RPM = Freq * 60 ;
+                  prevMillis = currentMillis;
+                  Serial.println("Frequency:");
+                  Serial.println(Freq);
+                  Serial.println("RPM:");
+                  Serial.println((Freq * 60));
+                  if (engPowerFlag == ENGINE_IS_OFF)
+                  {
+                      engPowerFlag = ENGINE_IS_ON;
+                      Serial.print("EON");
+                  }
               }           
           }
+  // read incomming commands
   if (Serial.available())
     {
        input = Serial.readStringUntil('\n');
-     /// turn on main lights///////
+     
     }
+  /// turn on main lights///////
   if (input == "headlight:on")
      {
       digitalWrite(headlightPin,HIGH);
       input ="";
 
-     }//////////
+     }//
    //////turn off main lights///////////
    if ((input == "headlight:off"))
        {
@@ -298,9 +368,9 @@ void loop()
           digitalWrite(headlightPin,LOW);
           input ="";
         }
-
        }////////
-   if ((input == "engineState"))
+   // engine State Called.
+   if (input == "engineState")
      {
         if (engPowerFlag ==ENGINE_IS_OFF)
         {
@@ -311,61 +381,73 @@ void loop()
         Serial.print("Engine Is ON");
         }
         input ="";
-      }////////       
+      }////////   
+   // turn on Police Lights
    if (input == "DoSirenLight")
        {
-       m_bdoSiren = true;
+       m_doSiren = true;
        input = "";
        blinkSiren();
 
        }
+   // turn off Police Lights
    if (input == "TurnOffSiren")
        {
-       m_bdoSiren = false;
+       m_doSiren = false;
        input = "";
        }
+   //Load speaker,Unload BUZZER
    if (input == "BuzzerToSpeaker")
        {
        toggleSpeakerPin(false);
        }
+   //onload loud speaker,Load BUZZER
    if (input == "speakerToBuzzer")
        {
        toggleSpeakerPin(true);
        }
+   // Emergency. Called By UI (recieved Remotely)
+   if (input == "EMERGENCYSHOTDOWN")
+       {
+       analogWrite(EMERGENCYShutDownPin, HIGH);
+       }
+   // Can Start Engine
+   if (input == "AllowStart")
+       {
+       analogWrite(EMERGENCYShutDownPin, LOW);
+       }
     //////turn off All Blinkers ///////////
   if ((input == "lturnblink:off") || (input == "rturnblink:off")  || (input == "multiblink:off")  || (input == "blinkdanceOff") )
   {
-    Serial.print("off All LEDs");
-  lfrontblinkerstate = false;
-  rfrontblinkerstate = false;
-  rbackblinkerstate = false;
-  rfrontblinkerstate = false;
-  blinkerstate = false;
-  multiblink = false;
-  digitalWrite(backLblinkPin,LOW);
-  digitalWrite(frontLblinkPin,LOW);
-  digitalWrite(backRblinkPin,LOW);
-  digitalWrite(frontRblinkPin,LOW);
-  input =""; //clear the buffer
+      if ((rturnflag == false) && (lturnflag == false))
+      {// if physical button was not pressed
+          Serial.print("off All LEDs");
+          Leftfrontblinkerstate = false;
+          Rightfrontblinkerstate = false;
+          Rightbackblinkerstate = false;
+          Rightfrontblinkerstate = false;
+          blinkerstate = false;
+          multiblink = false;
+          digitalWrite(backLeftBlinkPin, LOW);
+          digitalWrite(frontLeftBlinkPin, LOW);
+          digitalWrite(backRightBlinkPin, LOW);
+          digitalWrite(frontRightBlinkPin, LOW);
+          input = ""; //clear the buffer
+          if (blinkdance) Serial.print("danceOff");   //UpdateUI  
+          blinkdance = false;
+      }
   }////////
 
  //////////checks for Left blinker///////////////
-  if (input.startsWith("lturn:blink:"))
+  if (input == "lturn:blink" )
   {
-   bInterval = input.substring(12).toInt();
    Serial.print("lturn:blink:");
-  
-
-   if (bInterval > 0)
-     {
-      Serial.print(bInterval);
 
      blinkerstate = true;
-    lfrontblinkerstate = true;
-    lbackblinkerstate = true;
-    //Serial.print("true");
+    Leftfrontblinkerstate = true;
+    Leftbackblinkerstate = true;
     input ="";
-    }
+    
   }
  ////////////////////////
 if(input.startsWith("SetBlinkInterVal:"))
@@ -379,113 +461,132 @@ if (eep_blinkinterval >0) {
 
 
 }
- ///////Checks For Right Blinkers//////////////////
-  if (input.startsWith("rturn:blink:"))
+ ///////commands from UI//////////////////
+  if (input == "rturn:blink")
    {
-     //Serial.print("rturn:blink:");
-      bInterval = input.substring(12).toInt();
-     if (bInterval > 0)
-     {
-       // Serial.print(bInterval);
        blinkerstate = true;
-       rbackblinkerstate = true;
-       rfrontblinkerstate = true;
-       input ="";
-     }
+       Rightbackblinkerstate = true;
+       Rightfrontblinkerstate = true;
+       input ="";    
    }  
-
-  if (input.startsWith("multiblink:on:"))
-  {
-      bInterval = input.substring(14).toInt();
-      if (bInterval > 0)
-    {
+  //multi blink
+  if (input == "multiblink:on")
+  {   
      blinkerstate = true;
      multiblink = true;
      input ="";
-    }
   }
 
   if (input == "blinkdanceOn")
   {
-   //Serial.print("dance");
    blinkerstate = true;
    blinkdance = true;
   }
 
- ///toggle the blinkers  
-     Horn(); 
- Blink();
+//call  functions  
+     Horn(); // for horn
+ Blink();//for blinkers
 }//loop
 
+/// <summary>
+/// void blink(void)
+/// blinks the specified blinkers determinated by flags
+/// blinkers are: Front LEFT/Right, rear LEFT/Right blinkers
+/// it has 4 modes + multi and dance
+/// </summary>
+/// <param name="none"></param>
 void Blink(void)
 {
   if (blinkerstate)
       {
-        if (lfrontblinkerstate && lbackblinkerstate)
+        if (Leftfrontblinkerstate && Leftbackblinkerstate)
         {        
-          if ((currentMillis - prevMillis) >= bInterval)
+          if ((currentMillis - prevMillis) >= blinkInterval)
              {                          
-              digitalWrite(frontLblinkPin,state);
-               digitalWrite(backLblinkPin,state);       
+              digitalWrite(frontLeftBlinkPin,state);
+               digitalWrite(backLeftBlinkPin,state);  
+               /// call ui app
+               if (state)
+               {
+                   Serial.print("L");
+               } else
+               {
+                   Serial.print("l");
+               }
                state =!state;
-              // Serial.print("left");
               prevMillis = currentMillis;
              }
-         }
-         if (rbackblinkerstate && rfrontblinkerstate)
+         }//Left Turn
+        //Right Turn
+         if (Rightbackblinkerstate && Rightfrontblinkerstate)
          {
-                  if (currentMillis - prevMillis >= bInterval)
+                  if (currentMillis - prevMillis >= blinkInterval)
            {
-                   digitalWrite(backRblinkPin,state);
-                   digitalWrite(frontRblinkPin,state);
+                   digitalWrite(backRightBlinkPin,state);
+                   digitalWrite(frontRightBlinkPin,state);
                   state =!state;
-                  
+                  if (state)
+                  {
+                      Serial.print("R");
+                  } else
+                  {
+                      Serial.print("r");
+                  }
              prevMillis = currentMillis;
            }
-        }
+        }//
+         //Multiblink
          if (multiblink)
           {
-            if (currentMillis - prevMillis >= (bInterval)){
-                              digitalWrite(backRblinkPin,!state);
-                   digitalWrite(frontRblinkPin,!state);
-                   digitalWrite(frontLblinkPin,!state);
-                   digitalWrite(backLblinkPin,!state);
-                   digitalWrite(backRblinkPin, !state);
+            if (currentMillis - prevMillis >= (blinkInterval)){
+                              digitalWrite(backRightBlinkPin,!state);
+                   digitalWrite(frontRightBlinkPin,!state);
+                   digitalWrite(frontLeftBlinkPin,!state);
+                   digitalWrite(backLeftBlinkPin,!state);
+                   digitalWrite(backRightBlinkPin, !state);
+                   if (state)//Update UI
+                   {
+                       Serial.print("M");
+                   } else
+                   {
+                       Serial.print("m");
+                   }
              state =!state; 
               prevMillis = currentMillis;
             }
           }
         if (blinkdance)
         {
-            if (dancerandom >= 5 ) dancerandom = 1;
-          switch (dancerandom)
+            Serial.print("dance");   //UpdateUI  
+            if (danceMode >= 5 ) danceMode = 1;
+          switch (danceMode)
           {
                    case 1:
                    if ((currentMillis - delayMillis) >= 300)
                    {
-                    dancecounter++;
-                    switch (dancecounter) 
-                    {
-                     case 1:
-                      digitalWrite(frontLblinkPin,HIGH);
-                      digitalWrite(backLblinkPin,LOW);
+                    danceblinkcounter++;
+                    switch (danceblinkcounter) 
+                    {             
+                    case 1:         
+                      digitalWrite(frontLeftBlinkPin,HIGH);
+                      digitalWrite(backLeftBlinkPin,LOW);
                      break;
                      case 2:
-                     digitalWrite(frontLblinkPin,LOW);
-                     digitalWrite(frontRblinkPin,HIGH);
+                     digitalWrite(frontLeftBlinkPin,LOW);
+                     digitalWrite(frontRightBlinkPin,HIGH);
                      break;
                      case 3:
-                     digitalWrite(frontRblinkPin,LOW);
-                     digitalWrite(backRblinkPin,HIGH);
+                     digitalWrite(frontRightBlinkPin,LOW);
+                     digitalWrite(backRightBlinkPin,HIGH);
                      break;
                      case 4:
-                     digitalWrite(backRblinkPin,LOW);
-                     digitalWrite(backLblinkPin,HIGH);
-                     dancecounter = 0;
+                     digitalWrite(backRightBlinkPin,LOW);
+                     digitalWrite(backLeftBlinkPin,HIGH);
+                     danceblinkcounter = 0;
                      stagecounter++;
                      if (stagecounter >=5)
                      {
-                       dancerandom++;
+                       danceMode++;
                        stagecounter = 0;
                      }
                      break;
@@ -505,12 +606,12 @@ void Blink(void)
             {            
               if ((currentMillis - delayMillis) >= 50)
               {
-                digitalWrite(backLblinkPin,LOW);//turn off the 
-                digitalWrite(backRblinkPin,LOW);//back blinkers
+                digitalWrite(backLeftBlinkPin,LOW);//turn off the 
+                digitalWrite(backRightBlinkPin,LOW);//back blinkers
                 delayMillis = currentMillis;
                 danceTwoFrontState = !danceTwoFrontState;
-                digitalWrite(frontLblinkPin,danceTwoFrontState);//toggle the 
-                digitalWrite(frontRblinkPin,danceTwoFrontState);// front blinkers.
+                digitalWrite(frontLeftBlinkPin,danceTwoFrontState);//toggle the 
+                digitalWrite(frontRightBlinkPin,danceTwoFrontState);// front blinkers.
                 if (danceTwoFrontState == HIGH)
                 {
                   Serial.print("\n 1A \n");
@@ -530,12 +631,12 @@ void Blink(void)
              {
                if (currentMillis - delayMillis >=50)
                {
-                digitalWrite(frontLblinkPin,LOW);//turn off the 
-                digitalWrite(frontRblinkPin,LOW);//front blinkers
+                digitalWrite(frontLeftBlinkPin,LOW);//turn off the 
+                digitalWrite(frontRightBlinkPin,LOW);//front blinkers
                 delayMillis = currentMillis;
                 danceTwoBackState =!danceTwoBackState;
-                digitalWrite(backLblinkPin,danceTwoBackState);
-                digitalWrite(backRblinkPin,danceTwoBackState);
+                digitalWrite(backLeftBlinkPin,danceTwoBackState);
+                digitalWrite(backRightBlinkPin,danceTwoBackState);
                  if (danceTwoBackState == HIGH)
                  {
                   Serial.print("\n 1B \n");
@@ -550,7 +651,7 @@ void Blink(void)
                    if (stagecounter >= 5)
                     {
                      stagecounter = 0;
-                     dancerandom++;
+                     danceMode++;
                     }
                   }
                  }
@@ -566,12 +667,12 @@ void Blink(void)
            {            
               if ((currentMillis - delayMillis) >= 50)
               {
-                digitalWrite(frontRblinkPin,LOW);//turn off the 
-                digitalWrite(backRblinkPin,LOW);//Right blinkers
+                digitalWrite(frontRightBlinkPin,LOW);//turn off the 
+                digitalWrite(backRightBlinkPin,LOW);//Right blinkers
                 delayMillis = currentMillis;
                 danceTwoFrontState = !danceTwoFrontState;
-                digitalWrite(frontLblinkPin,danceTwoFrontState);//toggle the 
-                digitalWrite(backLblinkPin,danceTwoFrontState);// Left blinkers.
+                digitalWrite(frontLeftBlinkPin,danceTwoFrontState);//toggle the 
+                digitalWrite(backLeftBlinkPin,danceTwoFrontState);// Left blinkers.
                 if (danceTwoFrontState == HIGH)
                 {
                   Serial.print("\n 1A \n");
@@ -591,12 +692,12 @@ void Blink(void)
              {
               if (currentMillis - delayMillis >=50)
               {
-                digitalWrite(frontLblinkPin,LOW);//turn off the 
-                digitalWrite(backLblinkPin,LOW);//Left blinkers
+                digitalWrite(frontLeftBlinkPin,LOW);//turn off the 
+                digitalWrite(backLeftBlinkPin,LOW);//Left blinkers
                 delayMillis = currentMillis;
                 danceTwoBackState =!danceTwoBackState;
-                digitalWrite(frontRblinkPin,danceTwoBackState);
-                digitalWrite(backRblinkPin,danceTwoBackState);
+                digitalWrite(frontRightBlinkPin,danceTwoBackState);
+                digitalWrite(backRightBlinkPin,danceTwoBackState);
                  if (danceTwoBackState == HIGH)
                  {
                   Serial.print("\n 1B \n");
@@ -611,7 +712,7 @@ void Blink(void)
                    if (stagecounter >= 5)
                     {
                      stagecounter = 0;
-                     dancerandom++;
+                     danceMode++;
                     }
                   }
                  }
@@ -629,10 +730,10 @@ void Blink(void)
               {
                 delayMillis = currentMillis;
                 danceTwoFrontState = !danceTwoFrontState;
-                digitalWrite(frontLblinkPin,danceTwoFrontState);///Toggle
-                digitalWrite(frontRblinkPin,danceTwoFrontState);///the
-                digitalWrite(backLblinkPin,danceTwoFrontState);///All
-                digitalWrite(backRblinkPin,danceTwoFrontState);//Blinkers
+                digitalWrite(frontLeftBlinkPin,danceTwoFrontState);///Toggle
+                digitalWrite(frontRightBlinkPin,danceTwoFrontState);///the
+                digitalWrite(backLeftBlinkPin,danceTwoFrontState);///All
+                digitalWrite(backRightBlinkPin,danceTwoFrontState);//Blinkers
                 if (danceTwoFrontState == HIGH)
                 {
                   Serial.print("\n 1A \n");
@@ -652,10 +753,10 @@ void Blink(void)
              {
               if (currentMillis - delayMillis >=50)
               {
-                digitalWrite(frontLblinkPin,LOW);//turn off the 
-                digitalWrite(backLblinkPin,LOW);//Left blinkers
-                digitalWrite(frontRblinkPin,LOW);
-                digitalWrite(backRblinkPin,LOW);
+                digitalWrite(frontLeftBlinkPin,LOW);//turn off the 
+                digitalWrite(backLeftBlinkPin,LOW);//Left blinkers
+                digitalWrite(frontRightBlinkPin,LOW);
+                digitalWrite(backRightBlinkPin,LOW);
                 delayMillis = currentMillis;
                 danceTwoBackState =!danceTwoBackState;
 
@@ -673,7 +774,7 @@ void Blink(void)
                    if (stagecounter >=5)
                     {
                      stagecounter = 0;
-                     dancerandom = 1;
+                     danceMode = 1;
                     }
                   }
                  }
@@ -691,9 +792,10 @@ void Blink(void)
 ////////////////////////////////////////////
 //      
 //      void Horn();
-// Horn function
-//     it Has Several Modes 
-// Changes Per click Under 2seconds
+// horn!
+// it toggles horn relays according to  specified flags
+//  it Has 4 Modes 
+// modes will Change by  1 to 4 clicks Under 2seconds
 /////////////////////////////////////////////
 
 void Horn ()
@@ -707,8 +809,8 @@ void Horn ()
         // case 1:
         if ((hornclicks == 1) && (currentMillis - buttonPrevMillis) > 300)
         {  
-          digitalWrite(RhornPin,HIGH);
-          digitalWrite(LhornPin,HIGH);
+          digitalWrite(RightHornPin,HIGH);
+          digitalWrite(LeftHornPin,HIGH);
         }else if ((hornclicks == 2) && (currentMillis - buttonPrevMillis) > 300)
         {
           
@@ -717,10 +819,10 @@ void Horn ()
           {            
               if ((currentMillis - delayMillis) >= 50)
               {
-                digitalWrite(RhornPin,LOW);
+                digitalWrite(RightHornPin,LOW);
                 delayMillis = currentMillis;
                 hornStateA = !hornStateA;
-                digitalWrite(LhornPin,hornStateA);
+                digitalWrite(LeftHornPin,hornStateA);
                 if (hornStateA == HIGH)
                 {
                   Serial.print("\n 1A \n");
@@ -740,10 +842,10 @@ void Horn ()
            {
               if (currentMillis - delayMillis >=50)
               {
-                digitalWrite(LhornPin,LOW);
+                digitalWrite(LeftHornPin,LOW);
                 delayMillis = currentMillis;
                 hornStateB =!hornStateB;
-                digitalWrite(RhornPin,hornStateB);
+                digitalWrite(RightHornPin,hornStateB);
                  if (hornStateB == HIGH)
                  {
                   Serial.print("\n 1B \n");
@@ -769,16 +871,16 @@ void Horn ()
             if (currentMillis - delayMillis > 100)
              {
               delayMillis = currentMillis;
-              if (_hornmodetwostate == HIGH)
+              if (hornModeTwoState == HIGH)
               {
-              digitalWrite(LhornPin,LOW);
-              digitalWrite(RhornPin,HIGH);
-              _hornmodetwostate = false;
+              digitalWrite(LeftHornPin,LOW);
+              digitalWrite(RightHornPin,HIGH);
+              hornModeTwoState = false;
               }else
                {
-                digitalWrite(RhornPin,LOW);
-                digitalWrite(LhornPin, HIGH);
-                _hornmodetwostate = true;
+                digitalWrite(RightHornPin,LOW);
+                digitalWrite(LeftHornPin, HIGH);
+                hornModeTwoState = true;
                }
              }
          //hornclicks = 0;
@@ -786,98 +888,98 @@ void Horn ()
         {       
            Serial.print("\n case4 \n");
           //Mode 3 Wedding Mode ^_^
-          if (currentMillis - delayMillis >= 100 && modThreestate == false && modeCstage == 1)
+          if (currentMillis - delayMillis >= 100 && hornModThreeState == false && hornModeCStage == 1)
           {
             Serial.println("stage 1");
-            modeCstage = 2;
-           modThreestate = true;
+            hornModeCStage = 2;
+           hornModThreeState = true;
            delayMillis = currentMillis;
-           digitalWrite(LhornPin ,modThreestate);
-           digitalWrite(RhornPin, modThreestate);
-          } else if (currentMillis - delayMillis >= 50 && modThreestate == true && modeCstage == 2)
+           digitalWrite(LeftHornPin ,hornModThreeState);
+           digitalWrite(RightHornPin, hornModThreeState);
+          } else if (currentMillis - delayMillis >= 50 && hornModThreeState == true && hornModeCStage == 2)
             {
               Serial.println("stage 2");
-              modeCstage = 3;
-              modThreestate = false;
+              hornModeCStage = 3;
+              hornModThreeState = false;
               delayMillis = currentMillis;
-              digitalWrite(LhornPin,modThreestate);
-              digitalWrite(RhornPin,modThreestate);
-            }else if (currentMillis - delayMillis >=100 && modThreestate == false && modeCstage == 3)
+              digitalWrite(LeftHornPin,hornModThreeState);
+              digitalWrite(RightHornPin,hornModThreeState);
+            }else if (currentMillis - delayMillis >=100 && hornModThreeState == false && hornModeCStage == 3)
              {
               Serial.println("stage 3");
-              modeCstage = 4;
-              modThreestate = true;
+              hornModeCStage = 4;
+              hornModThreeState = true;
               delayMillis = currentMillis;
-              digitalWrite(LhornPin,modThreestate);
-              digitalWrite(RhornPin,modThreestate);              
-             } else if (currentMillis - delayMillis >=50 && modThreestate == true && modeCstage == 4)
+              digitalWrite(LeftHornPin,hornModThreeState);
+              digitalWrite(RightHornPin,hornModThreeState);              
+             } else if (currentMillis - delayMillis >=50 && hornModThreeState == true && hornModeCStage == 4)
                {
                 Serial.println("stage 4");
-                modeCstage = 5;
-                modThreestate = false;
+                hornModeCStage = 5;
+                hornModThreeState = false;
                 delayMillis = currentMillis;
-              digitalWrite(LhornPin,modThreestate);
-              digitalWrite(RhornPin,modThreestate);                
-               } else if (currentMillis - delayMillis >= 200 && modThreestate == false && modeCstage == 5)
+              digitalWrite(LeftHornPin,hornModThreeState);
+              digitalWrite(RightHornPin,hornModThreeState);                
+               } else if (currentMillis - delayMillis >= 200 && hornModThreeState == false && hornModeCStage == 5)
                  {
                   Serial.println("stage 5");
-                  modeCstage = 6;
-                  modThreestate = true;
+                  hornModeCStage = 6;
+                  hornModThreeState = true;
                   delayMillis = currentMillis;
-                  digitalWrite(LhornPin,modThreestate);
-                  digitalWrite(RhornPin,modThreestate);
-                 } else if (currentMillis - delayMillis >=200 && modThreestate ==true && modeCstage == 6)
+                  digitalWrite(LeftHornPin,hornModThreeState);
+                  digitalWrite(RightHornPin,hornModThreeState);
+                 } else if (currentMillis - delayMillis >=200 && hornModThreeState ==true && hornModeCStage == 6)
                    {
                     Serial.println("stage 6");
-                    modeCstage = 7;
-                    modThreestate = false;
+                    hornModeCStage = 7;
+                    hornModThreeState = false;
                     delayMillis = currentMillis;
-                     digitalWrite(LhornPin,modThreestate);
-                     digitalWrite(RhornPin,modThreestate);
-                   } else if (currentMillis - delayMillis >=250 && modThreestate == false && modeCstage == 7)
+                     digitalWrite(LeftHornPin,hornModThreeState);
+                     digitalWrite(RightHornPin,hornModThreeState);
+                   } else if (currentMillis - delayMillis >=250 && hornModThreeState == false && hornModeCStage == 7)
                      {
                       Serial.println("stage 7");
-                      modeCstage = 8;
-                      modThreestate = true;
+                      hornModeCStage = 8;
+                      hornModThreeState = true;
                       delayMillis = currentMillis;
-                      digitalWrite(LhornPin,modThreestate);
-                      digitalWrite(RhornPin,modThreestate);
-                     } else if (currentMillis - delayMillis >= 250 && modThreestate == true && modeCstage == 8)
+                      digitalWrite(LeftHornPin,hornModThreeState);
+                      digitalWrite(RightHornPin,hornModThreeState);
+                     } else if (currentMillis - delayMillis >= 250 && hornModThreeState == true && hornModeCStage == 8)
                        {
                         Serial.println("stage 8");
-                        modeCstage = 9;
-                        modThreestate = false;
+                        hornModeCStage = 9;
+                        hornModThreeState = false;
                         delayMillis = currentMillis;
-                        digitalWrite(LhornPin,modThreestate);
-                        digitalWrite(RhornPin,modThreestate);
-                       } else if (currentMillis - delayMillis >=250 && modThreestate ==false && modeCstage == 9)
+                        digitalWrite(LeftHornPin,hornModThreeState);
+                        digitalWrite(RightHornPin,hornModThreeState);
+                       } else if (currentMillis - delayMillis >=250 && hornModThreeState ==false && hornModeCStage == 9)
                          {
                           Serial.println("stage 9");
-                          modeCstage = 10;
-                          modThreestate = true;
+                          hornModeCStage = 10;
+                          hornModThreeState = true;
                           delayMillis = currentMillis;
-                          digitalWrite(LhornPin,modThreestate);
-                          digitalWrite(RhornPin,modThreestate);
-                         }else if (currentMillis - delayMillis >=250 && modThreestate ==true && modeCstage == 10)
+                          digitalWrite(LeftHornPin,hornModThreeState);
+                          digitalWrite(RightHornPin,hornModThreeState);
+                         }else if (currentMillis - delayMillis >=250 && hornModThreeState ==true && hornModeCStage == 10)
                          {
                           Serial.println("stage 10");
-                          modeCstage = 11;
-                          modThreestate = false;
+                          hornModeCStage = 11;
+                          hornModThreeState = false;
                           delayMillis = currentMillis;
-                          digitalWrite(LhornPin,modThreestate);
-                          digitalWrite(RhornPin,modThreestate);
-                         }else if (currentMillis - delayMillis >=250 && modThreestate ==false && modeCstage == 11)
+                          digitalWrite(LeftHornPin,hornModThreeState);
+                          digitalWrite(RightHornPin,hornModThreeState);
+                         }else if (currentMillis - delayMillis >=250 && hornModThreeState ==false && hornModeCStage == 11)
                          {
                           Serial.println("stage 11");
-                          modeCstage = 1;
+                          hornModeCStage = 1;
                          }
          //hornclicks = 0;
         }
   }else
   { 
  //   Serial.println("released");
-   digitalWrite(LhornPin,LOW);
-   digitalWrite(RhornPin,LOW);
+   digitalWrite(LeftHornPin,LOW);
+   digitalWrite(RightHornPin,LOW);
   }
 } 
 ///Horn Button Parser(called By Interrupt)
@@ -913,7 +1015,7 @@ void checkHornKey()
 /// </summary>
 void blinkSiren()
     {
-    if (m_bdoSiren)
+    if (m_doSiren)
     {
 
 
