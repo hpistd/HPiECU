@@ -19,7 +19,7 @@
 #include <EEPROM.h>
 
 
-//pins A6 - A7 is curently unused.
+//pin A7 is curently unused.
 
 
 constexpr auto headlightPin = 2;
@@ -34,6 +34,7 @@ constexpr auto blueSPin = 11;
 constexpr auto BrakePin = 12;
 constexpr auto AudioSwitcherPin = A0; /// Used For Swith Between Normal HIFI Speaker And Piezo Buzzer For Siren. 
 constexpr auto EMERGENCYShutDownPin = A4; /// For Remote ShutDown
+constexpr auto MotorPin = A6; /// steper|DC|servo motor for adjusting idle throttle(adjust engine's idle rpm)
 
 // Input Keys
 constexpr auto LturnINpin = A2;
@@ -1167,3 +1168,17 @@ void toggleSpeakerPin(bool ToBuzzer)
         }
     }
 
+/// <summary>
+/// void adjustIdleSpeed(short speed = 15)
+/// set's the Engine's idle speed. used for auto starting function.
+/// and warms engine in cool temps. 
+/// </summary>
+/// <param name="speed"> Engine RPM multiplied by 100(etc 15 * 100 = 1500 RPM at idle </param>
+void adjustIdleSpeed(short speed = 15)
+{
+    if (RPM <= 3500)
+    {
+        
+   }
+
+}
