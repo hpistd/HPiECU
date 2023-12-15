@@ -8,15 +8,20 @@
 /        1402/06/01 Created By Hosein Pirani.                                               *
 /                                                                                           *
 /       Modified in  fri. 1402/06/17 from 15:00 To 19:00 (blinkers)                         *
-/       Last modification: sat. 1402/08/27 from 12:55 To 16:07(fixed some bugs:serial,blink)*
+/       Last modification: fri. 1402/09/24 from 16:35 To 19:09(Added Servo,)                *
 /                                                                                           *
 /TODO: Test LED FLASHERs                                                                    *
 /TODO: Add Battery voltage Level indicator                                                  *
-/TODO: ,fix if() bug on loop(),,Serial Communic.edit RPM Meter               *
+/TODO: !!engine temp SenSor!!                                                               *
+/TODO: ,fix if() bug on loop(),,Serial Communic.edit RPM Meter   ,!!engine temp SenSor!!    *
 /*******************************************************************************************/
 
 
 #include <EEPROM.h>
+///Servo
+#include <ServoTimer2.h>
+// Servo For Adjusting Idle throttle(ENGINEs Idle RPM)
+ServoTimer2 IdleServo;
 
 
 //pin A7 is curently unused.
@@ -51,6 +56,9 @@ unsigned long input_Rissing_time = 0, input_Falling_time = 0, input_TOP_time = 0
 const unsigned long Timer1_prescaler_freq = 250000;//2000000
 unsigned long rpmPrvmillis = 0;
 int RPM = 0;
+//!!!!!!!!!!!!!
+//! bellow lines should removed for final upload!
+//! //////////////
 #ifdef __AVR_ATmega16__///because im testing it on both atmega16 and atmega328
 #define TIMERMASK TIMSK
 #define RPM_PULSE_IN 14
@@ -62,15 +70,15 @@ int RPM = 0;
 ///HORN
 unsigned short debounceDelay = 200;
 unsigned long delayMillis = 0,hornPrevMillis = 0, buttonPrevMillis = 0, lastDebounceTime = 0;
-short hornclicks = 0;
+byte hornclicks = 0;
 bool buttunstate= false;
 //HORN modes
-short hornCountA=0,hornCountB=0;
+byte hornCountA=0,hornCountB=0;
 bool horn1Aflag = true, horn1Bflag = false;
 bool hornStateA = false,hornStateB = false;
 bool hornModeTwoState = true;
 bool hornModThreeState = false; // current state of patern. below line is our patern 
-short hornModeCStage  =1;
+byte hornModeCStage  =1;
 
 ///////////
 /////<blinkers>
@@ -78,11 +86,11 @@ unsigned int blinkInterval = 250; // normal blinkers on/of delay in ms.
 unsigned long  prevMillis = 1000,currentMillis = 0; //for millis();. it used instead of old depricated delay() .
 ///MODE2
 bool danceTwoFrontFlag = true,danceTwoBackFlag = false,danceTwoFrontState = false,danceTwoBackState = false; // states
-short danceTwoFrontCounter = 0,danceTwoBackCounter = 0; // blink counters
+byte danceTwoFrontCounter = 0,danceTwoBackCounter = 0; // blink counters
 ///
- unsigned short danceMode =1;// current Mode
-short danceblinkcounter =0;// how many times current mode repeated?.
-short stagecounter = 0;// current stage play counter.
+byte danceMode =1;// current Mode
+byte danceblinkcounter =0;// how many times current mode repeated?.
+byte stagecounter = 0;// current stage play counter.
 //
 //normal blink
 bool state = false;
@@ -96,10 +104,10 @@ bool blinkdance = false;
 
 //
 // POLICE Siren Blinkers(RED/BLUE)LEDs
-short sirenCaseCounter = 0;// wich case is playing?
-short sirenDanceRedCounter = 0;//how many times RED LEDs toggled
-short sirenDanceBlueCounter = 0;//how many times BLUE LEDs toggled
-short SirenStageCounter = 0;//how Many times Current Case was Repeated? 
+byte sirenCaseCounter = 0;// wich case is playing?
+byte sirenDanceRedCounter = 0;//how many times RED LEDs toggled
+byte sirenDanceBlueCounter = 0;//how many times BLUE LEDs toggled
+byte SirenStageCounter = 0;//how Many times Current Case was Repeated? 
 bool sirenDanceRedFLAG = true; //Now, Were We Are?
 bool sirenDanceBlueFLAG = false;//Now, Were We Are?
 bool sirenDanceREDState = false;//Current State Of OUTPUT Pin(High Or Low)
@@ -113,7 +121,7 @@ constexpr auto ENGINE_IS_ON = true ;
 bool headlightFlag = false, lturnflag = false, rturnflag = false, brakeflag = false, engPowerFlag = ENGINE_IS_OFF; //parsing keys
 //EEPROM DATA
 int eep_blinkinterval = 300; // default Delay For Nomal Blinking
-int eep_blinkintervalAddress = 1; // Address Off Interval Holder
+byte eep_blinkintervalAddress = 1; // Address Off Interval Holder
 ///</blinkers>
 //Serial
 String   input = "";
@@ -152,6 +160,8 @@ ISR(TIMER1_CAPT_vect)
                 } else
                 {
                 Freq = (Timer1_prescaler_freq / input_TOP_time);
+                ///freq means revolution per second(RPS) and RPM Means Revolution per Minute
+                RPM = Freq * 60;
                 }
                 T1OVF_Counter = 0;
                 MeasEnd = 0;
@@ -161,6 +171,7 @@ void setup()
 {
   analogReference(DEFAULT);
   Serial.begin(115200);
+
   //Outputs
   pinMode(headlightPin,OUTPUT);
   pinMode(backLeftBlinkPin,OUTPUT);
@@ -174,6 +185,7 @@ void setup()
   pinMode(RedSPin,OUTPUT);
   pinMode(AudioSwitcherPin,OUTPUT);
   pinMode(EMERGENCYShutDownPin, OUTPUT);
+  pinMode(MotorPin, OUTPUT);
   ///Inputs
   pinMode(LturnINpin, INPUT);
   pinMode(RturnINpin, INPUT);
@@ -188,6 +200,8 @@ void setup()
   TCCR1B = 0;           // Init Timer1B
   TCCR1B |= B11000011;  // (B11000010) Internal Clock, Prescaler = 16, ICU Filter EN, ICU Pin RISING
   TIMERMASK |= B00100001;  // Enable Timer OVF & CAPT Interrupts
+  ////SERVO
+  IdleServo.attach(MotorPin);
 }
 
 void loop() 
@@ -335,7 +349,7 @@ void loop()
                   }
               }else 
                {
-                  RPM = Freq * 60 ;
+                  
                   prevMillis = currentMillis;
                   Serial.println("Frequency:");
                   Serial.println(Freq);
@@ -1169,16 +1183,26 @@ void toggleSpeakerPin(bool ToBuzzer)
     }
 
 /// <summary>
-/// void adjustIdleSpeed(short speed = 15)
+/// void adjustIdleSpeed(byte speed = 15)
 /// set's the Engine's idle speed. used for auto starting function.
 /// and warms engine in cool temps. 
 /// </summary>
 /// <param name="speed"> Engine RPM multiplied by 100(etc 15 * 100 = 1500 RPM at idle </param>
-void adjustIdleSpeed(short speed = 15)
-{
-    if (RPM <= 3500)
-    {
+void adjustIdleSpeed(byte speed = 15)
+{  
+    if (RPM <= 3500)//maximum Idle RPM
+   {
+        //increase manifould valve
+
         
-   }
+    } else if (RPM >= 3500)
+    {
+        //decrease manifould valve
+    } else
+    {
+        //Engine is off
+    }
 
 }
+
+
