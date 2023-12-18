@@ -8,12 +8,13 @@
 /        1402/06/01 Created By Hosein Pirani.                                               *
 /                                                                                           *
 /       Modified in  fri. 1402/06/17 from 15:00 To 19:00 (blinkers)                         *
-/       Last modification: fri. 1402/09/24 from 16:35 To 19:09(Added Servo,)                *
-/                                                                                           *
+/       Last modification: mon. 1402/09/27 from 15:35 To 18:40(Idle RPM,-unused variables)  *
+/TODO:   !!!!!!!!!!-->     Free Up More MEMORY!!! <--!!!!                                   *
 /TODO: Test LED FLASHERs                                                                    *
 /TODO: Add Battery voltage Level indicator                                                  *
-/TODO: !!engine temp SenSor!!                                                               *
-/TODO: ,fix if() bug on loop(),,Serial Communic.edit RPM Meter   ,!!engine temp SenSor!!    *
+/TODO: !!engine temp SenSor!! + indicator                                                   *
+/TODO: ,fix if() bug on loop(),Serial Communic.edit RPM Meter   ,!!engine temp SenSor!!     *
+/TODO: TEST And Debug idle Speed Adjuster                                                   *
 /*******************************************************************************************/
 
 
@@ -24,7 +25,7 @@
 ServoTimer2 IdleServo;
 
 
-//pin A7 is curently unused.
+//No pin is curently unused.
 
 
 constexpr auto headlightPin = 2;
@@ -48,6 +49,7 @@ constexpr auto HEADLightINpin = A5;
 constexpr auto BrakeINpin = 13;
 constexpr auto HornINpin = 3;
 constexpr auto VBattIN = A1;//for Measuring Battery Voltage for 15v -> r1 = 4.7k , r2 = 2.4k output = 5v2 max. for 12 v 4.7k ,6.8k
+constexpr auto TempSenseIn = A7;//Engine Temprature SenSor Pin.
 
 ///////////RPM Meter
 bool MeasEnd = 0;
@@ -56,6 +58,11 @@ unsigned long input_Rissing_time = 0, input_Falling_time = 0, input_TOP_time = 0
 const unsigned long Timer1_prescaler_freq = 250000;//2000000
 unsigned long rpmPrvmillis = 0;
 int RPM = 0;
+
+///Idle RPM
+unsigned long idleSpeedPrevMillis = 0;
+bool RPMadjusted = false;
+uint16_t Enginetemperature = 0;
 //!!!!!!!!!!!!!
 //! bellow lines should removed for final upload!
 //! //////////////
@@ -83,7 +90,7 @@ byte hornModeCStage  =1;
 ///////////
 /////<blinkers>
 unsigned int blinkInterval = 250; // normal blinkers on/of delay in ms.
-unsigned long  prevMillis = 1000,currentMillis = 0; //for millis();. it used instead of old depricated delay() .
+unsigned long  prevMillis = 1000; //for millis();. it used instead of old depricated delay() .
 ///MODE2
 bool danceTwoFrontFlag = true,danceTwoBackFlag = false,danceTwoFrontState = false,danceTwoBackState = false; // states
 byte danceTwoFrontCounter = 0,danceTwoBackCounter = 0; // blink counters
@@ -193,6 +200,7 @@ void setup()
   pinMode(BrakeINpin, INPUT);
   pinMode(HornINpin, INPUT);
   pinMode(VBattIN, INPUT);
+  pinMode(TempSenseIn, INPUT);
   ///Horn Button Listener
   attachInterrupt(digitalPinToInterrupt(HornINpin), checkHornKey, CHANGE);
   //RPM Meter
@@ -206,9 +214,9 @@ void setup()
 
 void loop() 
 {
-  currentMillis = millis();
+ 
   byte firstcheck = 0;
-  int add = 0;
+  uint16_t add = 0;
   firstcheck = EEPROM[add];
   if ( firstcheck != 123 )
   {
@@ -221,7 +229,9 @@ void loop()
    eep_blinkinterval = EEPROM.get(eep_blinkintervalAddress,eep_blinkinterval);
  }
 
- 
+ ///// RPM Adjusting
+ if (RPMadjusted == false) adjustIdleSpeed();
+
 //////brake
       if (digitalRead(BrakeINpin) == HIGH ) 
     {   
@@ -336,9 +346,9 @@ void loop()
     }
    }
 /////////RPM METER   
-  if ((currentMillis - rpmPrvmillis) >= 1000)
+  if ((millis() - rpmPrvmillis) >= 1000)
            {  
-            rpmPrvmillis =   currentMillis;             
+            rpmPrvmillis =   millis();             
               if(Freq <=0)
               {  
                   RPM = 0;
@@ -350,7 +360,7 @@ void loop()
               }else 
                {
                   
-                  prevMillis = currentMillis;
+                  prevMillis = millis();
                   Serial.println("Frequency:");
                   Serial.println(Freq);
                   Serial.println("RPM:");
@@ -516,7 +526,7 @@ void Blink(void)
       {
         if (Leftfrontblinkerstate && Leftbackblinkerstate)
         {        
-          if ((currentMillis - prevMillis) >= blinkInterval)
+          if ((millis() - prevMillis) >= blinkInterval)
              {                          
               digitalWrite(frontLeftBlinkPin,state);
                digitalWrite(backLeftBlinkPin,state);  
@@ -529,13 +539,13 @@ void Blink(void)
                    Serial.print("l");
                }
                state =!state;
-              prevMillis = currentMillis;
+              prevMillis = millis();
              }
          }//Left Turn
         //Right Turn
          if (Rightbackblinkerstate && Rightfrontblinkerstate)
          {
-                  if (currentMillis - prevMillis >= blinkInterval)
+                  if (millis() - prevMillis >= blinkInterval)
            {
                    digitalWrite(backRightBlinkPin,state);
                    digitalWrite(frontRightBlinkPin,state);
@@ -547,13 +557,13 @@ void Blink(void)
                   {
                       Serial.print("r");
                   }
-             prevMillis = currentMillis;
+             prevMillis = millis();
            }
         }//
          //Multiblink
          if (multiblink)
           {
-            if (currentMillis - prevMillis >= (blinkInterval)){
+            if (millis() - prevMillis >= (blinkInterval)){
                               digitalWrite(backRightBlinkPin,!state);
                    digitalWrite(frontRightBlinkPin,!state);
                    digitalWrite(frontLeftBlinkPin,!state);
@@ -567,7 +577,7 @@ void Blink(void)
                        Serial.print("m");
                    }
              state =!state; 
-              prevMillis = currentMillis;
+              prevMillis = millis();
             }
           }
         if (blinkdance)
@@ -577,7 +587,7 @@ void Blink(void)
           switch (danceMode)
           {
                    case 1:
-                   if ((currentMillis - delayMillis) >= 300)
+                   if ((millis() - delayMillis) >= 300)
                    {
                     danceblinkcounter++;
                     switch (danceblinkcounter) 
@@ -619,11 +629,11 @@ void Blink(void)
                      Serial.print("\n case2 \n");
               if (danceTwoFrontCounter <=5 && danceTwoFrontFlag == true)
             {            
-              if ((currentMillis - delayMillis) >= 50)
+              if ((millis() - delayMillis) >= 50)
               {
                 digitalWrite(backLeftBlinkPin,LOW);//turn off the 
                 digitalWrite(backRightBlinkPin,LOW);//back blinkers
-                delayMillis = currentMillis;
+                delayMillis = millis();
                 danceTwoFrontState = !danceTwoFrontState;
                 digitalWrite(frontLeftBlinkPin,danceTwoFrontState);//toggle the 
                 digitalWrite(frontRightBlinkPin,danceTwoFrontState);// front blinkers.
@@ -644,11 +654,11 @@ void Blink(void)
             {
               if (danceTwoBackCounter <=5 && danceTwoBackFlag == true )
              {
-               if (currentMillis - delayMillis >=50)
+               if (millis() - delayMillis >=50)
                {
                 digitalWrite(frontLeftBlinkPin,LOW);//turn off the 
                 digitalWrite(frontRightBlinkPin,LOW);//front blinkers
-                delayMillis = currentMillis;
+                delayMillis = millis();
                 danceTwoBackState =!danceTwoBackState;
                 digitalWrite(backLeftBlinkPin,danceTwoBackState);
                 digitalWrite(backRightBlinkPin,danceTwoBackState);
@@ -680,11 +690,11 @@ void Blink(void)
                      Serial.print("\n case3 \n");
            if (danceTwoFrontCounter <=5 && danceTwoFrontFlag == true)
            {            
-              if ((currentMillis - delayMillis) >= 50)
+              if ((millis() - delayMillis) >= 50)
               {
                 digitalWrite(frontRightBlinkPin,LOW);//turn off the 
                 digitalWrite(backRightBlinkPin,LOW);//Right blinkers
-                delayMillis = currentMillis;
+                delayMillis = millis();
                 danceTwoFrontState = !danceTwoFrontState;
                 digitalWrite(frontLeftBlinkPin,danceTwoFrontState);//toggle the 
                 digitalWrite(backLeftBlinkPin,danceTwoFrontState);// Left blinkers.
@@ -705,11 +715,11 @@ void Blink(void)
             {
              if (danceTwoBackCounter <=5 && danceTwoBackFlag == true )
              {
-              if (currentMillis - delayMillis >=50)
+              if (millis() - delayMillis >=50)
               {
                 digitalWrite(frontLeftBlinkPin,LOW);//turn off the 
                 digitalWrite(backLeftBlinkPin,LOW);//Left blinkers
-                delayMillis = currentMillis;
+                delayMillis = millis();
                 danceTwoBackState =!danceTwoBackState;
                 digitalWrite(frontRightBlinkPin,danceTwoBackState);
                 digitalWrite(backRightBlinkPin,danceTwoBackState);
@@ -741,9 +751,9 @@ void Blink(void)
           case 4:////////Blink All 4 Blinkers Rapidly
            if (danceTwoFrontCounter <=5 && danceTwoFrontFlag == true)
            {            
-              if ((currentMillis - delayMillis) >= 50)
+              if ((millis() - delayMillis) >= 50)
               {
-                delayMillis = currentMillis;
+                delayMillis = millis();
                 danceTwoFrontState = !danceTwoFrontState;
                 digitalWrite(frontLeftBlinkPin,danceTwoFrontState);///Toggle
                 digitalWrite(frontRightBlinkPin,danceTwoFrontState);///the
@@ -766,13 +776,13 @@ void Blink(void)
             {
              if (danceTwoBackCounter <=5 && danceTwoBackFlag == true )
              {
-              if (currentMillis - delayMillis >=50)
+              if (millis() - delayMillis >=50)
               {
                 digitalWrite(frontLeftBlinkPin,LOW);//turn off the 
                 digitalWrite(backLeftBlinkPin,LOW);//Left blinkers
                 digitalWrite(frontRightBlinkPin,LOW);
                 digitalWrite(backRightBlinkPin,LOW);
-                delayMillis = currentMillis;
+                delayMillis = millis();
                 danceTwoBackState =!danceTwoBackState;
 
                  if (danceTwoBackState == HIGH)
@@ -822,20 +832,20 @@ void Horn ()
        // Serial.println("horNing..");
       // {
         // case 1:
-        if ((hornclicks == 1) && (currentMillis - buttonPrevMillis) > 300)
+        if ((hornclicks == 1) && (millis() - buttonPrevMillis) > 300)
         {  
           digitalWrite(RightHornPin,HIGH);
           digitalWrite(LeftHornPin,HIGH);
-        }else if ((hornclicks == 2) && (currentMillis - buttonPrevMillis) > 300)
+        }else if ((hornclicks == 2) && (millis() - buttonPrevMillis) > 300)
         {
           
           Serial.print("\n case2 \n");
           if (hornCountA <=5 && horn1Aflag == true)
           {            
-              if ((currentMillis - delayMillis) >= 50)
+              if ((millis() - delayMillis) >= 50)
               {
                 digitalWrite(RightHornPin,LOW);
-                delayMillis = currentMillis;
+                delayMillis = millis();
                 hornStateA = !hornStateA;
                 digitalWrite(LeftHornPin,hornStateA);
                 if (hornStateA == HIGH)
@@ -855,10 +865,10 @@ void Horn ()
           {
            if (hornCountB <=5 && horn1Bflag == true )
            {
-              if (currentMillis - delayMillis >=50)
+              if (millis() - delayMillis >=50)
               {
                 digitalWrite(LeftHornPin,LOW);
-                delayMillis = currentMillis;
+                delayMillis = millis();
                 hornStateB =!hornStateB;
                 digitalWrite(RightHornPin,hornStateB);
                  if (hornStateB == HIGH)
@@ -878,14 +888,14 @@ void Horn ()
            }
           }
           //hornclicks = 0;                                       
-        }else if ((hornclicks == 3) && (currentMillis - buttonPrevMillis) > 300)
+        }else if ((hornclicks == 3) && (millis() - buttonPrevMillis) > 300)
         {
         
            Serial.print("\n case3 \n");
           ////mod2
-            if (currentMillis - delayMillis > 100)
+            if (millis() - delayMillis > 100)
              {
-              delayMillis = currentMillis;
+              delayMillis = millis();
               if (hornModeTwoState == HIGH)
               {
               digitalWrite(LeftHornPin,LOW);
@@ -899,91 +909,91 @@ void Horn ()
                }
              }
          //hornclicks = 0;
-        }else if ((hornclicks == 4) && (currentMillis - buttonPrevMillis) > 300)
+        }else if ((hornclicks == 4) && (millis() - buttonPrevMillis) > 300)
         {       
            Serial.print("\n case4 \n");
           //Mode 3 Wedding Mode ^_^
-          if (currentMillis - delayMillis >= 100 && hornModThreeState == false && hornModeCStage == 1)
+          if (millis() - delayMillis >= 100 && hornModThreeState == false && hornModeCStage == 1)
           {
             Serial.println("stage 1");
             hornModeCStage = 2;
            hornModThreeState = true;
-           delayMillis = currentMillis;
+           delayMillis = millis();
            digitalWrite(LeftHornPin ,hornModThreeState);
            digitalWrite(RightHornPin, hornModThreeState);
-          } else if (currentMillis - delayMillis >= 50 && hornModThreeState == true && hornModeCStage == 2)
+          } else if (millis() - delayMillis >= 50 && hornModThreeState == true && hornModeCStage == 2)
             {
               Serial.println("stage 2");
               hornModeCStage = 3;
               hornModThreeState = false;
-              delayMillis = currentMillis;
+              delayMillis = millis();
               digitalWrite(LeftHornPin,hornModThreeState);
               digitalWrite(RightHornPin,hornModThreeState);
-            }else if (currentMillis - delayMillis >=100 && hornModThreeState == false && hornModeCStage == 3)
+            }else if (millis() - delayMillis >=100 && hornModThreeState == false && hornModeCStage == 3)
              {
               Serial.println("stage 3");
               hornModeCStage = 4;
               hornModThreeState = true;
-              delayMillis = currentMillis;
+              delayMillis = millis();
               digitalWrite(LeftHornPin,hornModThreeState);
               digitalWrite(RightHornPin,hornModThreeState);              
-             } else if (currentMillis - delayMillis >=50 && hornModThreeState == true && hornModeCStage == 4)
+             } else if (millis() - delayMillis >=50 && hornModThreeState == true && hornModeCStage == 4)
                {
                 Serial.println("stage 4");
                 hornModeCStage = 5;
                 hornModThreeState = false;
-                delayMillis = currentMillis;
+                delayMillis = millis();
               digitalWrite(LeftHornPin,hornModThreeState);
               digitalWrite(RightHornPin,hornModThreeState);                
-               } else if (currentMillis - delayMillis >= 200 && hornModThreeState == false && hornModeCStage == 5)
+               } else if (millis() - delayMillis >= 200 && hornModThreeState == false && hornModeCStage == 5)
                  {
                   Serial.println("stage 5");
                   hornModeCStage = 6;
                   hornModThreeState = true;
-                  delayMillis = currentMillis;
+                  delayMillis = millis();
                   digitalWrite(LeftHornPin,hornModThreeState);
                   digitalWrite(RightHornPin,hornModThreeState);
-                 } else if (currentMillis - delayMillis >=200 && hornModThreeState ==true && hornModeCStage == 6)
+                 } else if (millis() - delayMillis >=200 && hornModThreeState ==true && hornModeCStage == 6)
                    {
                     Serial.println("stage 6");
                     hornModeCStage = 7;
                     hornModThreeState = false;
-                    delayMillis = currentMillis;
+                    delayMillis = millis();
                      digitalWrite(LeftHornPin,hornModThreeState);
                      digitalWrite(RightHornPin,hornModThreeState);
-                   } else if (currentMillis - delayMillis >=250 && hornModThreeState == false && hornModeCStage == 7)
+                   } else if (millis() - delayMillis >=250 && hornModThreeState == false && hornModeCStage == 7)
                      {
                       Serial.println("stage 7");
                       hornModeCStage = 8;
                       hornModThreeState = true;
-                      delayMillis = currentMillis;
+                      delayMillis = millis();
                       digitalWrite(LeftHornPin,hornModThreeState);
                       digitalWrite(RightHornPin,hornModThreeState);
-                     } else if (currentMillis - delayMillis >= 250 && hornModThreeState == true && hornModeCStage == 8)
+                     } else if (millis() - delayMillis >= 250 && hornModThreeState == true && hornModeCStage == 8)
                        {
                         Serial.println("stage 8");
                         hornModeCStage = 9;
                         hornModThreeState = false;
-                        delayMillis = currentMillis;
+                        delayMillis = millis();
                         digitalWrite(LeftHornPin,hornModThreeState);
                         digitalWrite(RightHornPin,hornModThreeState);
-                       } else if (currentMillis - delayMillis >=250 && hornModThreeState ==false && hornModeCStage == 9)
+                       } else if (millis() - delayMillis >=250 && hornModThreeState ==false && hornModeCStage == 9)
                          {
                           Serial.println("stage 9");
                           hornModeCStage = 10;
                           hornModThreeState = true;
-                          delayMillis = currentMillis;
+                          delayMillis = millis();
                           digitalWrite(LeftHornPin,hornModThreeState);
                           digitalWrite(RightHornPin,hornModThreeState);
-                         }else if (currentMillis - delayMillis >=250 && hornModThreeState ==true && hornModeCStage == 10)
+                         }else if (millis() - delayMillis >=250 && hornModThreeState ==true && hornModeCStage == 10)
                          {
                           Serial.println("stage 10");
                           hornModeCStage = 11;
                           hornModThreeState = false;
-                          delayMillis = currentMillis;
+                          delayMillis = millis();
                           digitalWrite(LeftHornPin,hornModThreeState);
                           digitalWrite(RightHornPin,hornModThreeState);
-                         }else if (currentMillis - delayMillis >=250 && hornModThreeState ==false && hornModeCStage == 11)
+                         }else if (millis() - delayMillis >=250 && hornModThreeState ==false && hornModeCStage == 11)
                          {
                           Serial.println("stage 11");
                           hornModeCStage = 1;
@@ -1000,21 +1010,21 @@ void Horn ()
 ///Horn Button Parser(called By Interrupt)
 void checkHornKey()
 {
-  currentMillis = millis();
+
   if((digitalRead(3)) == HIGH)
   {
     //Serial.println("pressing");
    // Serial.print(hornclicks);
-      if ((currentMillis - buttonPrevMillis) > 500)hornclicks = 0; //if no cicks comes after timeout so restart counter .
-   if (currentMillis - lastDebounceTime > debounceDelay)
+      if ((millis() - buttonPrevMillis) > 500)hornclicks = 0; //if no cicks comes after timeout so restart counter .
+   if (millis() - lastDebounceTime > debounceDelay)
     {
-      lastDebounceTime = currentMillis;
+      lastDebounceTime = millis();
      // Serial.println("intermillis");
       buttunstate = true;
       //cli();
       hornclicks++;
       if (hornclicks > 4 ) hornclicks = 1; // if we was  pressed the button more than 4 times so reset the click counter.
-      buttonPrevMillis = currentMillis;
+      buttonPrevMillis = millis();
     }
     
   }else buttunstate = false;//this code is Unnecessary. will removed.
@@ -1042,11 +1052,11 @@ void blinkSiren()
                 Serial.print("\n mod1 \n");
                 if (sirenDanceRedCounter <= 5 && sirenDanceRedFLAG == true)
                     {
-                    if ((currentMillis - sirenDancePrevMillis) >= 50)
+                    if ((millis() - sirenDancePrevMillis) >= 50)
                         {
                         digitalWrite(blueSPin, LOW);//turn off the blues
 
-                        sirenDancePrevMillis = currentMillis;
+                        sirenDancePrevMillis = millis();
                         sirenDanceREDState = !sirenDanceREDState;
                         digitalWrite(RedSPin, sirenDanceREDState);//toggle the 
 
@@ -1067,11 +1077,11 @@ void blinkSiren()
                     {
                     if (sirenDanceBlueCounter <= 5 && sirenDanceBlueFLAG == true)
                         {
-                        if (currentMillis - sirenDancePrevMillis >= 50)
+                        if (millis() - sirenDancePrevMillis >= 50)
                             {
                             digitalWrite(RedSPin, LOW);//turn off the reds
 
-                            sirenDancePrevMillis = currentMillis;
+                            sirenDancePrevMillis = millis();
                             sirenDanceBLUEState = !sirenDanceBLUEState;
                             digitalWrite(blueSPin, sirenDanceBLUEState);
 
@@ -1101,11 +1111,11 @@ void blinkSiren()
                 Serial.print("\n mod1 \n");
                 if (sirenDanceRedCounter <= 5 && sirenDanceRedFLAG == true)
                     {
-                    if ((currentMillis - sirenDancePrevMillis) >= 50)
+                    if ((millis() - sirenDancePrevMillis) >= 50)
                         {
                         digitalWrite(blueSPin, LOW);//turn off the blues
 
-                        sirenDancePrevMillis = currentMillis;
+                        sirenDancePrevMillis = millis();
                         sirenDanceREDState = !sirenDanceREDState;
                         digitalWrite(RedSPin, sirenDanceREDState);//toggle the 
 
@@ -1126,11 +1136,11 @@ void blinkSiren()
                     {
                     if (sirenDanceBlueCounter <= 5 && sirenDanceBlueFLAG == true)
                         {
-                        if (currentMillis - sirenDancePrevMillis >= 50)
+                        if (millis() - sirenDancePrevMillis >= 50)
                             {
                             digitalWrite(RedSPin, LOW);//turn off  red and blues
                             digitalWrite(blueSPin, LOW);//
-                            sirenDancePrevMillis = currentMillis;
+                            sirenDancePrevMillis = millis();
                             //because this code is copy-Pasted from previous case, Below Lines is unnecessary.
                             //they should be Modified!
                             // we should write code for waiting for 1000millisecond 
@@ -1183,26 +1193,81 @@ void toggleSpeakerPin(bool ToBuzzer)
     }
 
 /// <summary>
-/// void adjustIdleSpeed(byte speed = 15)
+/// uint16_t GetEngineTemp
+/// Reads Data From Engine's Temperature Sensor and Convert it to celcius.
+/// </summary>
+/// <returns>Current Engine's Temperature</returns>
+uint16_t GetEngineTemp()
+{ 
+    
+    uint16_t adcval = 0;
+    adcval = analogRead(TempSenseIn);
+    return adcval / 100;
+}
+
+/// <summary>
+/// void adjustIdleSpeed()
 /// set's the Engine's idle speed. used for auto starting function.
 /// and warms engine in cool temps. 
 /// </summary>
-/// <param name="speed"> Engine RPM multiplied by 100(etc 15 * 100 = 1500 RPM at idle </param>
-void adjustIdleSpeed(byte speed = 15)
-{  
-    if (RPM <= 3500)//maximum Idle RPM
-   {
-        //increase manifould valve
+/// 
+void adjustIdleSpeed()
+{
+    uint16_t  temperature = GetEngineTemp();
+ 
 
-        
-    } else if (RPM >= 3500)
+    if (millis() - idleSpeedPrevMillis >= 1000)
     {
-        //decrease manifould valve
-    } else
-    {
-        //Engine is off
+        idleSpeedPrevMillis = millis();
+
+
+        if (temperature < 5)
+        {
+            // Ice
+            SetIdleRPM(28);
+        } else if (temperature >= 5 && temperature < 10)
+        {
+            // very cold temperature near ice
+            SetIdleRPM(25);
+        } else if (temperature >= 10 && temperature < 15)
+        {
+            // very cold temperature
+            SetIdleRPM(23);
+        } else if (temperature >= 15 && temperature < 20)
+        {
+            // cold temperature
+            SetIdleRPM(20);
+        } else if (temperature >= 20 && temperature < 25)
+        {
+            // cool temperature
+            SetIdleRPM(18);
+        } else if (temperature >= 25 && temperature < 30)
+        {
+            //normal temperature
+            SetIdleRPM(17);
+        } else if (temperature >= 30 && temperature < 35)
+        {
+            //warm temperature
+            SetIdleRPM(16);
+        } else if (temperature > 35)
+        {
+            SetIdleRPM(15);
+            RPMadjusted = true;
+        }
     }
 
 }
+
+/// <summary>
+/// void SetIdleRPM(byte _RPM)
+/// Set Current Engine's RPM 
+/// </summary>
+/// <param name="_RPM"> Specified RPM to Be Set. RPM Will Moltiplied By 1000. Because Variable MEMORY Is too Small!</param>
+void SetIdleRPM(byte _RPM)
+{
+    uint16_t SpecifiedAngle = map(_RPM, 10, 28, 0, 360);
+    IdleServo.write(SpecifiedAngle);
+}
+
 
 
