@@ -8,10 +8,10 @@
 /        1402/06/01 Created By Hosein Pirani.                                               *
 /                                                                                           *
 /       Modified in  fri. 1402/06/17 from 15:00 To 19:00 (blinkers)                         *
-/       Last modification: mon. 1402/09/27 from 15:35 To 18:40(Idle RPM,-unused variables)  *
-/TODO:   !!!!!!!!!!-->     Free Up More MEMORY!!! <--!!!!                                   *
+/       Last modification: mon. 1402/09/27 from 16:35 To 19:40(AutoStart+Switch &some fix ) *
+/TODO: REMOTE Control Listener + Alarm +                                                    *
 /TODO: Test LED FLASHERs                                                                    *
-/TODO: Add Battery voltage Level indicator                                                  *
+/TODO:  AUTO Start Function + SwitchPins(VCC+GND)gnd for CDI shotdown pin                   *
 /TODO: !!engine temp SenSor!! + indicator                                                   *
 /TODO: ,fix if() bug on loop(),Serial Communic.edit RPM Meter   ,!!engine temp SenSor!!     *
 /TODO: TEST And Debug idle Speed Adjuster                                                   *
@@ -27,6 +27,7 @@ ServoTimer2 IdleServo;
 
 //No pin is curently unused.
 
+constexpr auto EEP_FIRST_CHECK_FLAG = 123;////////////////////////////////EEPROM FLAG Should be changed For Final Upload.
 
 constexpr auto headlightPin = 2;
 constexpr auto frontLeftBlinkPin = 4;
@@ -38,18 +39,29 @@ constexpr auto RightHornPin = 9;
 constexpr auto RedSPin = 10;
 constexpr auto blueSPin = 11;
 constexpr auto BrakePin = 12;
-constexpr auto AudioSwitcherPin = A0; /// Used For Swith Between Normal HIFI Speaker And Piezo Buzzer For Siren. 
+constexpr auto AudioSwitcherPin = A0; /// Used For Swith Between  HIFI Speaker And Piezo Buzzer For Siren. 
 constexpr auto EMERGENCYShutDownPin = A4; /// For Remote ShutDown
+constexpr auto CDI_ShotDownPin = 15; ////  For Auto Startup.should connected to relay (Normal OPEN)
+constexpr auto ENGINE_StartPin = 16; /// connected to relay/Power Transistor For auto start function. 
+constexpr auto SwitchPin = 17; // connected to relay for software controlled switch and Autostartup
 constexpr auto MotorPin = A6; /// steper|DC|servo motor for adjusting idle throttle(adjust engine's idle rpm)
 
 // Input Keys
+constexpr auto PiezzoINpin = 18;//For Piezzo Alarm
+constexpr auto RemoteStartINpin = 19; //Remote Start
+constexpr auto RemoteAlarmINpin = 20;//Enable Alarm
+constexpr auto RemoteSilentINpin = 21;//silence Alarm
 constexpr auto LturnINpin = A2;
 constexpr auto RturnINpin = A3;
 constexpr auto HEADLightINpin = A5;
 constexpr auto BrakeINpin = 13;
 constexpr auto HornINpin = 3;
-constexpr auto VBattIN = A1;//for Measuring Battery Voltage for 15v -> r1 = 4.7k , r2 = 2.4k output = 5v2 max. for 12 v 4.7k ,6.8k
-constexpr auto TempSenseIn = A7;//Engine Temprature SenSor Pin.
+constexpr auto TempSenseInpin = A7;//Engine Temprature SenSor Pin.
+constexpr auto SwitchINpin = 17;//for check the switch is Open Or No. 
+constexpr auto VBattINpin = A1;//for Measuring Battery Voltage for 90v -> r1 =220k , r2 = 13k output = 5v max. 
+// for 24 V  75K(76K) ,20K
+// for 12 v 4.7k ,6.8k
+//for  55 v 10K ,1K prefrred
 
 ///////////RPM Meter
 bool MeasEnd = 0;
@@ -62,9 +74,20 @@ int RPM = 0;
 ///Idle RPM
 unsigned long idleSpeedPrevMillis = 0;
 bool RPMadjusted = false;
+ uint16_t previousAngle  = 0;// store prev Servo angle. for wating for engine to warm up.
+uint16_t eep_minServoAngle = 0, eep_maxServoAngle = 360;
+///
+//AUTOStart
+
+ unsigned long AutoStartDurrationMillis = 0;//counter for Start Button Pressing. 
+ bool strartcompleted = false;// if task was done
+ unsigned long when = 0; //we need this flag because we uising millis()
+ int howmany = 0;//we need this flag because we uising millis()
+//
+///temperature
 uint16_t Enginetemperature = 0;
 //!!!!!!!!!!!!!
-//! bellow lines should removed for final upload!
+//! bellow lines may removed for final upload!
 //! //////////////
 #ifdef __AVR_ATmega16__///because im testing it on both atmega16 and atmega328
 #define TIMERMASK TIMSK
@@ -87,7 +110,7 @@ bool hornModeTwoState = true;
 bool hornModThreeState = false; // current state of patern. below line is our patern 
 byte hornModeCStage  =1;
 
-///////////
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 /////<blinkers>
 unsigned int blinkInterval = 250; // normal blinkers on/of delay in ms.
 unsigned long  prevMillis = 1000; //for millis();. it used instead of old depricated delay() .
@@ -108,7 +131,6 @@ bool Rightfrontblinkerstate = false;
 bool Leftbackblinkerstate = false;
 bool Rightbackblinkerstate = false;
 bool blinkdance = false;
-
 //
 // POLICE Siren Blinkers(RED/BLUE)LEDs
 byte sirenCaseCounter = 0;// wich case is playing?
@@ -121,24 +143,30 @@ bool sirenDanceREDState = false;//Current State Of OUTPUT Pin(High Or Low)
 bool sirenDanceBLUEState = false;//Current State Of OUTPUT Pin(High Or Low)
 unsigned long sirenDancePrevMillis = 0;//Last Toggle Time
 bool m_doSiren = false;//Serial Command is received? so Blink.
+//////////////////////////////////////////////////////////////////////////////////////////</blinkers>
 //flags
 constexpr auto ENGINE_IS_OFF = false;
 constexpr auto ENGINE_IS_ON = true ;
 /// input keys Flag
 bool headlightFlag = false, lturnflag = false, rturnflag = false, brakeflag = false, engPowerFlag = ENGINE_IS_OFF; //parsing keys
 //EEPROM DATA
+bool freshstart = true;//first startup (start from reset Vector Or Power ON)
 int eep_blinkinterval = 300; // default Delay For Nomal Blinking
 byte eep_blinkintervalAddress = 1; // Address Off Interval Holder
-///</blinkers>
+byte eep_minimumIdleRPMAddress = eep_blinkintervalAddress + sizeof(int);  //minimum Engine's Idle RPM EEPROM Address. for Idle Adjuster. Set By UI.
+byte eep_minimumIdleRPM = 150;//minimum Idle RPM
+byte eep_minServoAngleAddress = eep_minimumIdleRPMAddress + sizeof(byte);
+byte eep_maxServoAngleAddress = eep_minServoAngleAddress + sizeof(uint16_t);
+//
 //Serial
 String   input = "";
 bool commandFromUI = false;///  any blink command comes from UI (?)
 /*
 String SerialInputCommands[] ={"off","on","headlight:on","headlight:off","leftfrontblink","leftbackblink","rightfrontblink",
 "rightbackblink","brake","lefthorn","righthorn","smalllight","DoSirenLight","TurnOffSiren","multiblink:on","multiblink:off",
-"lturn:blink","rturn:blink","lturnblink:off","rturnblink:off","blinkdanceOn","blinkdanceOff","SetBlinkInterVal:300","engineState","EMERGENCYSHOTDOWN","AllowStart"};
+"lturn:blink","rturn:blink","lturnblink:off","rturnblink:off","blinkdanceOn","blinkdanceOff","SetBlinkInterVal:300","engineState","EMERGENCYSHOTDOWN","AllowStart","AutoStart:1000:2000,"SetMinimumServoAngle","SetMaximumServoAngle"};
 
-String SerialOUTPUTCommands[] ={"off","on","Engine Is OFF(EOF)","Engine Is ON(EON)","RPM:000,SmallLight,Uplight,DownLight,UPlightBlink","L","l","R","r","M","m"};
+String SerialOUTPUTCommands[] ={"off","on","Engine Is OFF(EOF)","Engine Is ON(EON)","VBATT","TEMP","RPM:000,SmallLight,Uplight,DownLight,UPlightBlink","L","l","R","r","M","m"};
 */
 ISR(TIMER1_OVF_vect)
     {
@@ -164,6 +192,7 @@ ISR(TIMER1_CAPT_vect)
             if (input_TOP_time == 0)
                 {
                 Freq = 0;
+                RPM = 0;
                 } else
                 {
                 Freq = (Timer1_prescaler_freq / input_TOP_time);
@@ -176,7 +205,7 @@ ISR(TIMER1_CAPT_vect)
     }
 void setup() 
 {
-  analogReference(DEFAULT);
+  analogReference(EXTERNAL);
   Serial.begin(115200);
 
   //Outputs
@@ -193,14 +222,22 @@ void setup()
   pinMode(AudioSwitcherPin,OUTPUT);
   pinMode(EMERGENCYShutDownPin, OUTPUT);
   pinMode(MotorPin, OUTPUT);
+  pinMode(CDI_ShotDownPin, OUTPUT);
+  pinMode(ENGINE_StartPin, OUTPUT);
+  pinMode(SwitchPin, OUTPUT);
   ///Inputs
   pinMode(LturnINpin, INPUT);
   pinMode(RturnINpin, INPUT);
   pinMode(HEADLightINpin, INPUT);
   pinMode(BrakeINpin, INPUT);
   pinMode(HornINpin, INPUT);
-  pinMode(VBattIN, INPUT);
-  pinMode(TempSenseIn, INPUT);
+  pinMode(VBattINpin, INPUT);
+  pinMode(TempSenseInpin, INPUT);
+  pinMode(SwitchINpin, INPUT);
+  pinMode(PiezzoINpin, INPUT);
+  pinMode(RemoteAlarmINpin, INPUT);
+  pinMode(RemoteSilentINpin, INPUT);
+  pinMode(RemoteStartINpin, INPUT);
   ///Horn Button Listener
   attachInterrupt(digitalPinToInterrupt(HornINpin), checkHornKey, CHANGE);
   //RPM Meter
@@ -214,20 +251,46 @@ void setup()
 
 void loop() 
 {
- 
-  byte firstcheck = 0;
-  uint16_t add = 0;
-  firstcheck = EEPROM[add];
-  if ( firstcheck != 123 )
-  {
-    EEPROM.put(add, 123);
-    delay(5);
-    EEPROM.put(eep_blinkintervalAddress, eep_blinkinterval);
-    delay(5);
- }else 
-  {
-   eep_blinkinterval = EEPROM.get(eep_blinkintervalAddress,eep_blinkinterval);
- }
+ /// EEPROM DATA
+///Blink Delay & Minimum Idle RPM + Servo Angle
+    if (freshstart == true)
+    {
+        byte firstcheck = 0;
+        uint16_t add = 0;
+        firstcheck = EEPROM[add];
+
+
+
+        if (firstcheck != EEP_FIRST_CHECK_FLAG)
+        {
+            //Blink Interval
+            EEPROM.put(add, EEP_FIRST_CHECK_FLAG);
+            delay(5);
+            EEPROM.put(eep_blinkintervalAddress, eep_blinkinterval);
+            delay(5);
+            //IDLE RPM
+            EEPROM.put(eep_minimumIdleRPMAddress, eep_minimumIdleRPM);
+            //SERVO Angle
+            delay(5);
+            EEPROM.put(eep_minServoAngleAddress, eep_minServoAngle);
+            delay(5);
+            EEPROM.put(eep_maxServoAngleAddress, eep_maxServoAngle);
+        } else
+        {
+            EEPROM.get(eep_blinkintervalAddress, eep_blinkinterval);
+            delay(5);
+            EEPROM.get(eep_minimumIdleRPMAddress, eep_minimumIdleRPM);
+        }
+        freshstart = false;
+    }
+ //
+    /// read Serial Commands
+    if (Serial.available())
+    {
+        input = Serial.readStringUntil('\n');
+
+    }
+
 
  ///// RPM Adjusting
  if (RPMadjusted == false) adjustIdleSpeed();
@@ -345,39 +408,46 @@ void loop()
        blinkdance = false;
     }
    }
-/////////RPM METER   
-  if ((millis() - rpmPrvmillis) >= 1000)
-           {  
-            rpmPrvmillis =   millis();             
-              if(Freq <=0)
-              {  
-                  RPM = 0;
-                  if (engPowerFlag == ENGINE_IS_ON)
-                  {
-                      engPowerFlag = ENGINE_IS_OFF;
-                      Serial.print("EOF");
-                  }
-              }else 
-               {
-                  
-                  prevMillis = millis();
-                  Serial.println("Frequency:");
-                  Serial.println(Freq);
-                  Serial.println("RPM:");
-                  Serial.println((Freq * 60));
-                  if (engPowerFlag == ENGINE_IS_OFF)
-                  {
-                      engPowerFlag = ENGINE_IS_ON;
-                      Serial.print("EON");
-                  }
-              }           
-          }
+/////////RPM METER & Battery Voltage & Engine Temp   
+   if ((millis() - rpmPrvmillis) >= 1000)
+   {
+       rpmPrvmillis = millis();
+       //RPM
+       if (Freq <= 0)
+       {
+           RPM = 0;
+           if (engPowerFlag == ENGINE_IS_ON)
+           {
+               engPowerFlag = ENGINE_IS_OFF;
+               Serial.print("EOF");
+               TemporaryDOSwitch(false);//restore to defaults
+
+           }
+       } else
+       {
+
+           prevMillis = millis();
+           Serial.println("Frequency:");
+           Serial.println(Freq);
+           Serial.println("RPM:");
+           Serial.println((Freq * 60));
+           if (engPowerFlag == ENGINE_IS_OFF)
+           {
+               engPowerFlag = ENGINE_IS_ON;
+               Serial.print("EON");
+           }
+       }
+       //
+       //Battery Voltage
+       Serial.println("VBatt");
+       Serial.println(getBatteryVoltage());
+       //
+       //Engine Temp.
+       Serial.println("Temp");
+       Serial.println(GetEngineTemp());
+   }
   // read incomming commands
-  if (Serial.available())
-    {
-       input = Serial.readStringUntil('\n');
-     
-    }
+
   /// turn on main lights///////
   if (input == "headlight:on")
      {
@@ -464,28 +534,79 @@ void loop()
   }////////
 
  //////////checks for Left blinker///////////////
-  if (input == "lturn:blink" )
+  if (input == "lturn:blink")
   {
-   Serial.print("lturn:blink:");
+      Serial.print("lturn:blink:");
 
-     blinkerstate = true;
-    Leftfrontblinkerstate = true;
-    Leftbackblinkerstate = true;
-    input ="";
-    
+      blinkerstate = true;
+      Leftfrontblinkerstate = true;
+      Leftbackblinkerstate = true;
+      input = "";
+
   }
- ////////////////////////
-if(input.startsWith("SetBlinkInterVal:"))
-{
+  //
+ ////AUTOStart
+  if (input.startsWith("AutoStart:1000:2000"))
+  {
+ 
+      when = input.substring(10,14).toDouble();
+      howmany = input.substring(15, 19).toInt();
 
-  eep_blinkinterval = input.substring(17).toInt();
-if (eep_blinkinterval >0) {
- EEPROM.update(eep_blinkintervalAddress, eep_blinkinterval);
+      if ((when > 0) && (howmany > 0))
+      {
+          if (millis() - prevMillis > when)
+          {
+              
+              AutoStart();
+             // input = "";
+          }
 
-}
+      }
+  }
+ //////EEPROM Blink Interval set.
+  if (input.startsWith("SetBlinkInterVal:"))
+  {
+      eep_blinkinterval = input.substring(17).toInt();
+      if (eep_blinkinterval > 0)
+      {
+          EEPROM.update(eep_blinkintervalAddress, eep_blinkinterval);
+      }
+  }
+  //
+//////EEPROM minimum idle RPM set.
+  if (input.startsWith("SetMinimumIdleRPM:"))
+  {
 
+      eep_minimumIdleRPM = input.substring(18).toInt();
+      if (eep_minimumIdleRPM > 0)
+      {
+          EEPROM.update(eep_minimumIdleRPMAddress, eep_minimumIdleRPM);
+          delay(5);
+      }
+  }
+//
+/// EEPROM Min and max Servo Angle
+  if (input.startsWith("SetMinimumServoAngle:"))
+  {
 
-}
+      eep_minServoAngle = input.substring(21).toInt();
+   
+          EEPROM.update(eep_minServoAngleAddress, eep_minServoAngle);
+          delay(5);
+      
+  }
+  ///MAX
+  if (input.startsWith("SetMaximumServoAngle:"))
+  {
+
+      eep_maxServoAngle = input.substring(21).toInt();
+      if (eep_maxServoAngle > 0)
+      {
+          EEPROM.update(eep_maxServoAngleAddress, eep_maxServoAngle);
+          delay(5);
+      }
+  }
+ //
  ///////commands from UI//////////////////
   if (input == "rturn:blink")
    {
@@ -511,6 +632,7 @@ if (eep_blinkinterval >0) {
 //call  functions  
      Horn(); // for horn
  Blink();//for blinkers
+
 }//loop
 
 /// <summary>
@@ -1179,8 +1301,7 @@ void blinkSiren()
 /// <summary>
 /// toggles Audio Out Pin bitween Normal Speaker For Playing etc Music and Buzzer For Play Siren Sounds.
 /// </summary>
-/// <param name="ToBuzzer"></param>
-/// <bool ToBuzzer>  determinates  wich one should be actived(buzz Or spk) 
+/// <param name="ToBuzzer">-> determinates  wich one should be actived(buzz Or spk) </param>
 void toggleSpeakerPin(bool ToBuzzer)
     {
     if (ToBuzzer)
@@ -1193,16 +1314,43 @@ void toggleSpeakerPin(bool ToBuzzer)
     }
 
 /// <summary>
+/// !!NEED TO BE CORRECTED.TEMPORARY DEFINED!!
 /// uint16_t GetEngineTemp
 /// Reads Data From Engine's Temperature Sensor and Convert it to celcius.
 /// </summary>
 /// <returns>Current Engine's Temperature</returns>
-uint16_t GetEngineTemp()
+float GetEngineTemp()
 { 
-    
-    uint16_t adcval = 0;
-    adcval = analogRead(TempSenseIn);
-    return adcval / 100;
+    //!!NEED TO BE CORRECTED.TEMPORARY DEFINED!!
+    float adcval = 0;
+    adcval = analogRead(TempSenseInpin);
+    return (adcval / 100);
+}
+
+/// <summary>
+/// Get Current Battery/Rectifier Voltage. Maximum 55vDC (can be changed To 24 Volts For More Accuracy).
+/// 220K ohm's + 10Kohm's --> 22:1 divided.
+/// </summary>
+/// <returns>(float)0 To 90VDC </returns>
+float getBatteryVoltage()
+{
+
+    float input_voltage = 0.0;
+    float temp = 0.0;
+    float r1 = 10000.0;// HighResistor 10Kohms.
+    float r2 = 1000.0;//LowResistor 1Kohms.  10:1 Divided
+
+    int analog_value = analogRead(VBattINpin);
+
+    temp = (analog_value * 5.0) / 1024.0;
+
+    input_voltage = (temp / (r2) / (r1 + r2));
+
+    if (input_voltage < 0.1)
+    {
+        input_voltage = 0.0;
+    }
+    return input_voltage;
 }
 
 /// <summary>
@@ -1214,7 +1362,7 @@ uint16_t GetEngineTemp()
 void adjustIdleSpeed()
 {
     uint16_t  temperature = GetEngineTemp();
- 
+    
 
     if (millis() - idleSpeedPrevMillis >= 1000)
     {
@@ -1224,34 +1372,34 @@ void adjustIdleSpeed()
         if (temperature < 5)
         {
             // Ice
-            SetIdleRPM(28);
+            SetIdleRPM(280);
         } else if (temperature >= 5 && temperature < 10)
         {
             // very cold temperature near ice
-            SetIdleRPM(25);
+            SetIdleRPM(250);
         } else if (temperature >= 10 && temperature < 15)
         {
             // very cold temperature
-            SetIdleRPM(23);
+            SetIdleRPM(230);
         } else if (temperature >= 15 && temperature < 20)
         {
             // cold temperature
-            SetIdleRPM(20);
+            SetIdleRPM(200);
         } else if (temperature >= 20 && temperature < 25)
         {
             // cool temperature
-            SetIdleRPM(18);
+            SetIdleRPM(180);
         } else if (temperature >= 25 && temperature < 30)
         {
             //normal temperature
-            SetIdleRPM(17);
+            SetIdleRPM(170);
         } else if (temperature >= 30 && temperature < 35)
         {
             //warm temperature
-            SetIdleRPM(16);
+            SetIdleRPM(160);
         } else if (temperature > 35)
         {
-            SetIdleRPM(15);
+            SetIdleRPM(eep_minimumIdleRPM);
             RPMadjusted = true;
         }
     }
@@ -1262,12 +1410,91 @@ void adjustIdleSpeed()
 /// void SetIdleRPM(byte _RPM)
 /// Set Current Engine's RPM 
 /// </summary>
-/// <param name="_RPM"> Specified RPM to Be Set. RPM Will Moltiplied By 1000. Because Variable MEMORY Is too Small!</param>
-void SetIdleRPM(byte _RPM)
+/// <param name="_RPM">-> Specified RPM to Be Set. RPM Will Moltiplied By 10. Because Variable MEMORY Is too Small!</param>
+void SetIdleRPM(uint16_t _RPM)
 {
-    uint16_t SpecifiedAngle = map(_RPM, 10, 28, 0, 360);
-    IdleServo.write(SpecifiedAngle);
+    uint16_t SpecifiedAngle = map(_RPM, 100, 280, eep_minServoAngle, eep_maxServoAngle);
+
+    /// skip if Engine's Temperature not changed ( wait For Engine to warm Up).
+    if (SpecifiedAngle != previousAngle)
+    {
+        IdleServo.write(SpecifiedAngle);
+        previousAngle = SpecifiedAngle;
+    }
 }
 
+/// <summary>
+/// Auto Start Engine. 
+/// </summary>
+/// <param name="when">-> countDown Time For Start in Milliseconds.</param>
+/// <param name="howmany">-> duration of pressing the Start Button in seconds. use -1 for force until engine start.  </param>
+void AutoStart()
+{
 
 
+        if (Switch_is_Open() == false)
+        {
+            TemporaryDOSwitch(true);
+        }
+
+        if (howmany > 0 )// if command comes from UI
+        {
+            
+            
+              
+                if (strartcompleted == false)
+                {
+                    digitalWrite(ENGINE_StartPin, HIGH);
+
+
+                    if ((millis()) - AutoStartDurrationMillis > howmany)
+                    {
+                        digitalWrite(ENGINE_StartPin, LOW);
+                        strartcompleted = true;
+                        AutoStartDurrationMillis = 0;
+                        input = "";
+                    }
+
+                }
+            
+        }
+
+}
+
+/// <summary>
+/// Remote Control Listener
+/// </summary>
+void ListenForRemote()
+{
+
+
+
+}
+
+/// <summary>
+/// check for switch is open or no
+/// </summary>
+/// <returns></returns>
+bool Switch_is_Open()
+{
+    return digitalRead(SwitchINpin) == HIGH ? true : false;
+}
+
+/// <summary>
+/// Temporary Open Switch For Remote AutoStart
+/// </summary>
+/// <param name="open">-> Open or Close The Switch.</param>
+void TemporaryDOSwitch(bool open)
+{
+    if (open == true)
+    {
+        digitalWrite(SwitchPin, HIGH);// Connect DC Power To System.
+        digitalWrite(CDI_ShotDownPin, HIGH);//Disable CDI shotdown Pin.
+        digitalWrite(EMERGENCYShutDownPin, LOW);//Disable Emergency shotDown.
+
+    } else//Restore defaults
+    {
+        digitalWrite(SwitchPin, LOW);// Disconnect DC Power from System.
+        digitalWrite(CDI_ShotDownPin, LOW);//Enable CDI shotdown Pin.
+    }
+}
