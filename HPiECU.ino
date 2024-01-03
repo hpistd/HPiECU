@@ -8,8 +8,8 @@
 /        1402/06/01 Created By Hosein Pirani.                                               *
 /                                                                                           *
 /       Modified in  fri. 1402/06/17 from 15:00 To 19:00 (blinkers)                         *
-/       Last modification: mon. 1402/09/27 from 16:35 To 19:40(AutoStart+Switch &some fix ) *
-/TODO: REMOTE Control Listener + Alarm +                                                    *
+/       Last modification: mon. 1402/10/13 from 16:35 To 19:10(AutoStart+Switch+LockAlarm ) *
+/TODO: REMOTE Control Listener + Alarm + Tone                                               *
 /TODO: Test LED FLASHERs                                                                    *
 /TODO:  AUTO Start Function + SwitchPins(VCC+GND)gnd for CDI shotdown pin                   *
 /TODO: !!engine temp SenSor!! + indicator                                                   *
@@ -24,8 +24,8 @@
 // Servo For Adjusting Idle throttle(ENGINEs Idle RPM)
 ServoTimer2 IdleServo;
 
-
-//No pin is curently unused.
+// pin 23 is curently unused.
+//!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!Pinouts should be Coreccted For Final Upload!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 
 constexpr auto EEP_FIRST_CHECK_FLAG = 123;////////////////////////////////EEPROM FLAG Should be changed For Final Upload.
 
@@ -45,12 +45,13 @@ constexpr auto CDI_ShotDownPin = 15; ////  For Auto Startup.should connected to 
 constexpr auto ENGINE_StartPin = 16; /// connected to relay/Power Transistor For auto start function. 
 constexpr auto SwitchPin = 17; // connected to relay for software controlled switch and Autostartup
 constexpr auto MotorPin = A6; /// steper|DC|servo motor for adjusting idle throttle(adjust engine's idle rpm)
-
+//Piezo I/O Pin
+constexpr auto PiezzoIOpin = 18;//For Piezzo Alarm. either INPUT & OUTPUT.
 // Input Keys
-constexpr auto PiezzoINpin = 18;//For Piezzo Alarm
 constexpr auto RemoteStartINpin = 19; //Remote Start
-constexpr auto RemoteAlarmINpin = 20;//Enable Alarm
-constexpr auto RemoteSilentINpin = 21;//silence Alarm
+constexpr auto RemoteLSINpin = 20;//Lock or Silence if  Alarm actived or silence Lock.
+constexpr auto RemoteUnlockINpin = 21;//unlock Alarm
+constexpr auto RemoteShotDownINpin = 22;///Remote Emergency ShotDown
 constexpr auto LturnINpin = A2;
 constexpr auto RturnINpin = A3;
 constexpr auto HEADLightINpin = A5;
@@ -78,11 +79,17 @@ bool RPMadjusted = false;
 uint16_t eep_minServoAngle = 0, eep_maxServoAngle = 360;
 ///
 //AUTOStart
-
  unsigned long AutoStartDurrationMillis = 0;//counter for Start Button Pressing. 
- bool strartcompleted = false;// if task was done
- unsigned long when = 0; //we need this flag because we uising millis()
- int howmany = 0;//we need this flag because we uising millis()
+ bool StartCompleted = false;// if task was done
+ int startPressDurration = 0;//we need this flag because we uising millis()
+ //
+ ///Remote Control Listener
+ bool RemoteShotDownFlag = false;//flag for remote shotdown keyPress.
+ unsigned long RemoteShotDownLastMillis = 0; // Timer For remote shotdown keyPress.
+ byte RemoteLSstate = 0;// counter For Lock/SilenceAlarm
+ bool lockflag = false;//for Play Single Alarm wich means Locked.
+ bool PiezzoDetected = false;// Piezzo Used As Sensor and Now Shake Detected.
+
 //
 ///temperature
 uint16_t Enginetemperature = 0;
@@ -164,7 +171,7 @@ bool commandFromUI = false;///  any blink command comes from UI (?)
 /*
 String SerialInputCommands[] ={"off","on","headlight:on","headlight:off","leftfrontblink","leftbackblink","rightfrontblink",
 "rightbackblink","brake","lefthorn","righthorn","smalllight","DoSirenLight","TurnOffSiren","multiblink:on","multiblink:off",
-"lturn:blink","rturn:blink","lturnblink:off","rturnblink:off","blinkdanceOn","blinkdanceOff","SetBlinkInterVal:300","engineState","EMERGENCYSHOTDOWN","AllowStart","AutoStart:1000:2000,"SetMinimumServoAngle","SetMaximumServoAngle"};
+"lturn:blink","rturn:blink","lturnblink:off","rturnblink:off","blinkdanceOn","blinkdanceOff","SetBlinkInterVal:300","engineState","EMERGENCYSHOTDOWN","AllowStart","AutoStart:1000,"SetMinimumServoAngle","SetMaximumServoAngle"};
 
 String SerialOUTPUTCommands[] ={"off","on","Engine Is OFF(EOF)","Engine Is ON(EON)","VBATT","TEMP","RPM:000,SmallLight,Uplight,DownLight,UPlightBlink","L","l","R","r","M","m"};
 */
@@ -225,6 +232,7 @@ void setup()
   pinMode(CDI_ShotDownPin, OUTPUT);
   pinMode(ENGINE_StartPin, OUTPUT);
   pinMode(SwitchPin, OUTPUT);
+  pinMode(PiezzoIOpin, OUTPUT);
   ///Inputs
   pinMode(LturnINpin, INPUT);
   pinMode(RturnINpin, INPUT);
@@ -234,10 +242,10 @@ void setup()
   pinMode(VBattINpin, INPUT);
   pinMode(TempSenseInpin, INPUT);
   pinMode(SwitchINpin, INPUT);
-  pinMode(PiezzoINpin, INPUT);
-  pinMode(RemoteAlarmINpin, INPUT);
-  pinMode(RemoteSilentINpin, INPUT);
+  pinMode(RemoteLSINpin, INPUT);
+  pinMode(RemoteUnlockINpin, INPUT);
   pinMode(RemoteStartINpin, INPUT);
+  pinMode(RemoteShotDownINpin, INPUT);
   ///Horn Button Listener
   attachInterrupt(digitalPinToInterrupt(HornINpin), checkHornKey, CHANGE);
   //RPM Meter
@@ -546,22 +554,20 @@ void loop()
   }
   //
  ////AUTOStart
-  if (input.startsWith("AutoStart:1000:2000"))
+  if (input.startsWith("AutoStart:1000"))
   {
  
-      when = input.substring(10,14).toDouble();
-      howmany = input.substring(15, 19).toInt();
+      startPressDurration = input.substring(10).toDouble();
+      
 
-      if ((when > 0) && (howmany > 0))
-      {
-          if (millis() - prevMillis > when)
-          {
+
+
               
-              AutoStart();
+              AutoStart(startPressDurration);
              // input = "";
-          }
+          
 
-      }
+      
   }
  //////EEPROM Blink Interval set.
   if (input.startsWith("SetBlinkInterVal:"))
@@ -1129,7 +1135,9 @@ void Horn ()
    digitalWrite(RightHornPin,LOW);
   }
 } 
-///Horn Button Parser(called By Interrupt)
+/// <summary>
+/// Interrupt@ Horn KeyPress Listener
+/// </summary>
 void checkHornKey()
 {
 
@@ -1155,6 +1163,11 @@ void checkHornKey()
  
   //Serial.println("interout");
 //Serial.print(hornclicks);
+}
+
+void ListenForPiezo()
+{
+
 }
 
 /// <summary>
@@ -1428,7 +1441,7 @@ void SetIdleRPM(uint16_t _RPM)
 /// </summary>
 /// <param name="when">-> countDown Time For Start in Milliseconds.</param>
 /// <param name="howmany">-> duration of pressing the Start Button in seconds. use -1 for force until engine start.  </param>
-void AutoStart()
+void AutoStart(int howmany)
 {
 
 
@@ -1442,7 +1455,7 @@ void AutoStart()
             
             
               
-                if (strartcompleted == false)
+                if (StartCompleted == false)
                 {
                     digitalWrite(ENGINE_StartPin, HIGH);
 
@@ -1450,26 +1463,30 @@ void AutoStart()
                     if ((millis()) - AutoStartDurrationMillis > howmany)
                     {
                         digitalWrite(ENGINE_StartPin, LOW);
-                        strartcompleted = true;
+                        StartCompleted = true;
                         AutoStartDurrationMillis = 0;
-                        input = "";
+                        input = "";//Clear Serial Buffer Here.
                     }
 
                 }
             
+        } else if (howmany == -1)//Start Until Engine turned on.
+        {
+            if (StartCompleted == false)
+            {
+                digitalWrite(ENGINE_StartPin, HIGH);
+            }
+            if (RPM >= 1000)
+            {
+                digitalWrite(ENGINE_StartPin, LOW);
+                StartCompleted = true;
+            }
+
         }
 
 }
 
-/// <summary>
-/// Remote Control Listener
-/// </summary>
-void ListenForRemote()
-{
 
-
-
-}
 
 /// <summary>
 /// check for switch is open or no
@@ -1496,5 +1513,81 @@ void TemporaryDOSwitch(bool open)
     {
         digitalWrite(SwitchPin, LOW);// Disconnect DC Power from System.
         digitalWrite(CDI_ShotDownPin, LOW);//Enable CDI shotdown Pin.
+    }
+}
+
+/// <summary>
+/// Remote Control Listener.
+/// </summary>
+void ListenForRemoteControl()
+{
+    if (engPowerFlag == ENGINE_IS_ON)
+    {
+        // Lock Not Allowed. Only Remote Shutdown Allowed.
+        if (digitalRead(RemoteShotDownINpin) == HIGH)
+        {
+
+            digitalWrite(EMERGENCYShutDownPin, HIGH);
+            RemoteShotDownFlag = true;
+            RemoteShotDownLastMillis = millis();
+        }
+    } else
+    {// Engine Is Off
+        if (digitalRead(RemoteLSINpin) == HIGH)
+        {
+            RemoteLSstate++;
+            switch (RemoteLSstate)
+            {
+            case 1://Lock
+                lockflag = true;
+                DoLock();
+                pinMode(PiezzoIOpin, INPUT);
+                attachInterrupt(digitalPinToInterrupt(PiezzoIOpin), ListenForPiezo, CHANGE);
+
+                break;
+            case 2://SilenceAlarm
+                RemoteLSstate = 0;//Reset The Counter
+                break;
+            }
+            
+             
+        }
+        if (digitalRead(RemoteUnlockINpin == HIGH))
+        {
+            detachInterrupt(digitalPinToInterrupt(PiezzoIOpin));//disable Piezzo Interrupt
+            pinMode(PiezzoIOpin, OUTPUT);
+        }
+        if (digitalRead(RemoteStartINpin) == HIGH)
+        {
+            digitalWrite(ENGINE_StartPin, HIGH);
+
+        } else if (digitalRead(RemoteStartINpin) == LOW)
+        {
+            digitalWrite(ENGINE_StartPin, LOW);
+        }
+
+    }//
+
+    if ((digitalRead(RemoteShotDownINpin) == LOW) && RemoteShotDownFlag == true)
+    {
+        if (millis() - RemoteShotDownLastMillis >= 10000)//Wait For 10 Seconds To Engine's shotdown Complete.
+        {
+            RemoteShotDownLastMillis = millis();
+            digitalWrite(EMERGENCYShutDownPin, LOW);
+        }
+    }
+
+}
+
+void DoLock()
+{
+    if (lockflag == true)
+    {
+        //single Alarm
+
+    }
+    if (PiezzoDetected == true)
+    {
+        //continous Alarm
     }
 }
