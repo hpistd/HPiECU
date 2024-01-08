@@ -27,7 +27,7 @@ ServoTimer2 IdleServo;
 // pin 23 is curently unused.
 //!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!Pinouts should be Coreccted For Final Upload!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 
-constexpr auto EEP_FIRST_CHECK_FLAG = 123;////////////////////////////////EEPROM FLAG Should be changed For Final Upload.
+constexpr auto EEP_FIRST_CHECK_FLAG = 0;////////////////////////////////EEPROM FLAG Should be changed For Final Upload.
 
 constexpr auto headlightPin = 2;
 constexpr auto frontLeftBlinkPin = 4;
@@ -46,7 +46,7 @@ constexpr auto ENGINE_StartPin = 16; /// connected to relay/Power Transistor For
 constexpr auto SwitchPin = 17; // connected to relay for software controlled switch and Autostartup
 constexpr auto MotorPin = A6; /// steper|DC|servo motor for adjusting idle throttle(adjust engine's idle rpm)
 //Piezo I/O Pin
-constexpr auto PiezzoIOpin = 18;//For Piezzo Alarm. either INPUT & OUTPUT.
+constexpr auto PiezoIOpin = 18;//For Piezo Alarm. either INPUT & OUTPUT.
 // Input Keys
 constexpr auto RemoteStartINpin = 19; //Remote Start
 constexpr auto RemoteLSINpin = 20;//Lock or Silence if  Alarm actived or silence Lock.
@@ -244,7 +244,7 @@ void setup()
   pinMode(CDI_ShutDownPin, OUTPUT);
   pinMode(ENGINE_StartPin, OUTPUT);
   pinMode(SwitchPin, OUTPUT);
-  pinMode(PiezzoIOpin, OUTPUT);
+  pinMode(PiezoIOpin, OUTPUT);
   ///Inputs
   pinMode(LturnINpin, INPUT);
   pinMode(RturnINpin, INPUT);
@@ -1582,8 +1582,8 @@ void ListenForRemoteControl()
             Alarm = false; //Disable Alarm.
             lockflag = false;////Reset "Lock" Flag. 
             PiezzoDetected = false;//Reset "Piezo Detected" Flag. 
-            detachInterrupt(digitalPinToInterrupt(PiezzoIOpin));//disable Piezzo Interrupt
-            pinMode(PiezzoIOpin, OUTPUT);
+            detachInterrupt(digitalPinToInterrupt(PiezoIOpin));//disable Piezzo Interrupt
+            pinMode(PiezoIOpin, OUTPUT);
         }
         if (digitalRead(RemoteStartINpin) == HIGH)//Press Start Button.
         {
@@ -1616,8 +1616,8 @@ void DoLock()
     {
         //single Alarm
         single_Alarm = true;
-        pinMode(PiezzoIOpin, INPUT);//toggle Piezo to shake sensor
-        attachInterrupt(digitalPinToInterrupt(PiezzoIOpin), ListenForPiezo, CHANGE);//Attach ISR For Piezo sensor
+        pinMode(PiezoIOpin, INPUT);//toggle Piezo to shake sensor
+        attachInterrupt(digitalPinToInterrupt(PiezoIOpin), ListenForPiezo, CHANGE);//Attach ISR For Piezo sensor
         TemporaryDOSwitch(false);//close switch.
 
     }
@@ -1666,7 +1666,7 @@ void DoAlarm()
 
                     }
                 }
-                tone(PiezzoIOpin, A_freq);
+                tone(PiezoIOpin, A_freq);
 
                 break;
             case 4:
@@ -1684,7 +1684,7 @@ void DoAlarm()
                         currentCounter++;
                     }
                 }
-                tone(PiezzoIOpin, D_freq);
+                tone(PiezoIOpin, D_freq);
                 break;
             case 2:
                 /*Serial.println("B");*/
@@ -1695,7 +1695,7 @@ void DoAlarm()
                     if (flag == true)
                     {
                         mod3_wait++;
-                        noTone(PiezzoIOpin);
+                        noTone(PiezoIOpin);
                         if (mod3_wait >= 100)
                         {
 
@@ -1706,7 +1706,7 @@ void DoAlarm()
                     } else
                     {
                         B_freq--;
-                        tone(PiezzoIOpin, B_freq);
+                        tone(PiezoIOpin, B_freq);
                         if (B_freq <= 511)
                         {
                             flag = true;
@@ -1731,11 +1731,11 @@ void DoAlarm()
                     if (flag == true)
                     {
                         //mod3_wait++;
-                        noTone(PiezzoIOpin);
+                        noTone(PiezoIOpin);
                     } else
                     {
                         //freq--;
-                        tone(PiezzoIOpin, C_freq);
+                        tone(PiezoIOpin, C_freq);
 
                     }
                 }//micros
@@ -1767,7 +1767,7 @@ void DoAlarm()
             Alarm = false;
             blinkerstate = false;//
             multiblink = false;
-            noTone(PiezzoIOpin);
+            noTone(PiezoIOpin);
         }
 
     } else// Disable Alarm
@@ -1788,7 +1788,7 @@ void DoAlarm()
             if (flag == true)
             {
                 Single_freq++;
-                tone(PiezzoIOpin, Single_freq);
+                tone(PiezoIOpin, Single_freq);
                 if (Single_freq >= 768)
                 {
                     singlecount++;
@@ -1798,7 +1798,7 @@ void DoAlarm()
             } else
             {
                 Single_freq--;
-                noTone(PiezzoIOpin);
+                noTone(PiezoIOpin);
                 if (Single_freq <= 611)
                     flag = true;
             }
@@ -1810,7 +1810,7 @@ void DoAlarm()
             blinkerstate = false;//disable Blinkers.
             multiblink = false;//disable Blinkers.
             singlecount = 0;
-            noTone(PiezzoIOpin);
+            noTone(PiezoIOpin);
             single_Alarm = false;
         }
 
