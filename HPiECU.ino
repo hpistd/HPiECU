@@ -11,7 +11,7 @@
 /       Last modification: mon. 1402/10/13 from 16:35 To 19:10(AutoStart+Switch+LockAlarm ) *
 /TODO: REMOTE Control Listener + Alarm + Tone                                               *
 /TODO: Test LED FLASHERs                                                                    *
-/TODO:  AUTO Start Function + SwitchPins(VCC+GND)gnd for CDI shotdown pin                   *
+/TODO:  AUTO Start Function + SwitchPins(VCC+GND)gnd for CDI shutdown pin                   *
 /TODO: !!engine temp SenSor!! + indicator                                                   *
 /TODO: ,fix if() bug on loop(),Serial Communic.edit RPM Meter   ,!!engine temp SenSor!!     *
 /TODO: TEST And Debug idle Speed Adjuster                                                   *
@@ -41,7 +41,7 @@ constexpr auto blueSPin = 11;
 constexpr auto BrakePin = 12;
 constexpr auto AudioSwitcherPin = A0; /// Used For Swith Between  HIFI Speaker And Piezo Buzzer For Siren. 
 constexpr auto EMERGENCYShutDownPin = A4; /// For Remote ShutDown
-constexpr auto CDI_ShotDownPin = 15; ////  For Auto Startup.should connected to relay (Normal OPEN)
+constexpr auto CDI_ShutDownPin = 15; ////  For Auto Startup.should connected to relay (Normal OPEN)
 constexpr auto ENGINE_StartPin = 16; /// connected to relay/Power Transistor For auto start function. 
 constexpr auto SwitchPin = 17; // connected to relay for software controlled switch and Autostartup
 constexpr auto MotorPin = A6; /// steper|DC|servo motor for adjusting idle throttle(adjust engine's idle rpm)
@@ -51,7 +51,7 @@ constexpr auto PiezzoIOpin = 18;//For Piezzo Alarm. either INPUT & OUTPUT.
 constexpr auto RemoteStartINpin = 19; //Remote Start
 constexpr auto RemoteLSINpin = 20;//Lock or Silence if  Alarm actived or silence Lock.
 constexpr auto RemoteUnlockINpin = 21;//unlock Alarm
-constexpr auto RemoteShotDownINpin = 22;///Remote Emergency ShotDown
+constexpr auto RemoteShutDownINpin = 22;///Remote Emergency ShutDown
 constexpr auto LturnINpin = A2;
 constexpr auto RturnINpin = A3;
 constexpr auto HEADLightINpin = A5;
@@ -84,12 +84,24 @@ uint16_t eep_minServoAngle = 0, eep_maxServoAngle = 360;
  int startPressDurration = 0;//we need this flag because we uising millis()
  //
  ///Remote Control Listener
- bool RemoteShotDownFlag = false;//flag for remote shotdown keyPress.
- unsigned long RemoteShotDownLastMillis = 0; // Timer For remote shotdown keyPress.
+ bool RemoteShutDownFlag = false;//flag for remote shutdown keyPress.
+ unsigned long RemoteShutDownLastMillis = 0; // Timer For remote shutdown keyPress.
  byte RemoteLSstate = 0;// counter For Lock/SilenceAlarm
  bool lockflag = false;//for Play Single Alarm wich means Locked.
  bool PiezzoDetected = false;// Piezzo Used As Sensor and Now Shake Detected.
-
+ //
+ ///Alarm
+ unsigned long  Alarm_prevmillis = 0, Alarm_prevmicros = 0;// counters.
+ unsigned long Alarm_Timer = 0;//Timer For Loop Alarm. Disable The Alarm after 20 Seconds.
+ bool flag = true;
+ bool Alarm = false;//Alarm Called?
+ bool single_Alarm = false;// one time  Alarm (played when Locking)
+ bool Silenced = false; // Silent Mode?
+ uint16_t A_freq = 768, D_freq = 700, B_freq = 768, C_freq = 170, Single_freq = 611;
+ int mod3_wait = 0;
+ unsigned long delayy = 550, mod_A_delay = 350, mod_D_delay = 400, mod_B_delay = 350, mod_C_delay = 3000, Single_delay = 500;
+ String input = "";
+ byte Alarmstage = 1, currentCounter = 0, singlecount = 0;/// current stage of Alarm
 //
 ///temperature
 uint16_t Enginetemperature = 0;
@@ -229,7 +241,7 @@ void setup()
   pinMode(AudioSwitcherPin,OUTPUT);
   pinMode(EMERGENCYShutDownPin, OUTPUT);
   pinMode(MotorPin, OUTPUT);
-  pinMode(CDI_ShotDownPin, OUTPUT);
+  pinMode(CDI_ShutDownPin, OUTPUT);
   pinMode(ENGINE_StartPin, OUTPUT);
   pinMode(SwitchPin, OUTPUT);
   pinMode(PiezzoIOpin, OUTPUT);
@@ -245,7 +257,7 @@ void setup()
   pinMode(RemoteLSINpin, INPUT);
   pinMode(RemoteUnlockINpin, INPUT);
   pinMode(RemoteStartINpin, INPUT);
-  pinMode(RemoteShotDownINpin, INPUT);
+  pinMode(RemoteShutDownINpin, INPUT);
   ///Horn Button Listener
   attachInterrupt(digitalPinToInterrupt(HornINpin), checkHornKey, CHANGE);
   //RPM Meter
@@ -635,9 +647,15 @@ void loop()
    blinkdance = true;
   }
 
+  /////////////////////////////////////////////////////////////////////
+  // we're using millis() instead Of Delay(). So We need Call Functions rapidly. 
+  // its like Multitasking and Event listening.
 //call  functions  
-     Horn(); // for horn
- Blink();//for blinkers
+     Horn(); // for horn.
+ Blink();//for blinkers.
+  ListenForRemoteControl();//Remote Control Listener.
+  DoAlarm();// Lock Alarm.
+
 
 }//loop
 
@@ -1165,9 +1183,13 @@ void checkHornKey()
 //Serial.print(hornclicks);
 }
 
+/// <summary>
+/// ISR For Shake detecting Using Piezo Sensor. 
+/// </summary>
 void ListenForPiezo()
 {
-
+//Piezo was detected an shake.
+    
 }
 
 /// <summary>
@@ -1506,13 +1528,17 @@ void TemporaryDOSwitch(bool open)
     if (open == true)
     {
         digitalWrite(SwitchPin, HIGH);// Connect DC Power To System.
-        digitalWrite(CDI_ShotDownPin, HIGH);//Disable CDI shotdown Pin.
-        digitalWrite(EMERGENCYShutDownPin, LOW);//Disable Emergency shotDown.
+        digitalWrite(CDI_ShutDownPin, HIGH);//Disable CDI shutdown Pin.
+        digitalWrite(EMERGENCYShutDownPin, LOW);//Disable Emergency shutDown.
 
     } else//Restore defaults
     {
         digitalWrite(SwitchPin, LOW);// Disconnect DC Power from System.
-        digitalWrite(CDI_ShotDownPin, LOW);//Enable CDI shotdown Pin.
+        digitalWrite(CDI_ShutDownPin, LOW);//Enable CDI shutdown Pin.
+        if (digitalRead(SwitchINpin) == HIGH)
+        {
+            digitalWrite(EMERGENCYShutDownPin, HIGH);// If Switch Not Closed Manually (physically), Close It For Safe.
+        }
     }
 }
 
@@ -1524,70 +1550,269 @@ void ListenForRemoteControl()
     if (engPowerFlag == ENGINE_IS_ON)
     {
         // Lock Not Allowed. Only Remote Shutdown Allowed.
-        if (digitalRead(RemoteShotDownINpin) == HIGH)
+        if (digitalRead(RemoteShutDownINpin) == HIGH)//ShutDown ENGINE Remotely.
         {
 
             digitalWrite(EMERGENCYShutDownPin, HIGH);
-            RemoteShotDownFlag = true;
-            RemoteShotDownLastMillis = millis();
+            RemoteShutDownFlag = true;
+            RemoteShutDownLastMillis = millis();
         }
     } else
     {// Engine Is Off
-        if (digitalRead(RemoteLSINpin) == HIGH)
+        if (digitalRead(RemoteLSINpin) == HIGH)//Lock Or Silence Alarm 
         {
             RemoteLSstate++;
             switch (RemoteLSstate)
             {
             case 1://Lock
+                Silenced = false;//Disable Silence Mode If Silenced.
                 lockflag = true;
                 DoLock();
-                pinMode(PiezzoIOpin, INPUT);
-                attachInterrupt(digitalPinToInterrupt(PiezzoIOpin), ListenForPiezo, CHANGE);
-
                 break;
             case 2://SilenceAlarm
+                PiezzoDetected = false;//Reset "Piezo Detected" Flag. 
+                Alarm = false;//Disable Alarm
+                Silenced = true;
                 RemoteLSstate = 0;//Reset The Counter
                 break;
-            }
-            
-             
+            }        
         }
-        if (digitalRead(RemoteUnlockINpin == HIGH))
+        if (digitalRead(RemoteUnlockINpin) == HIGH)//Unlock ENGINE
         {
+            Alarm = false; //Disable Alarm.
+            lockflag = false;////Reset "Lock" Flag. 
+            PiezzoDetected = false;//Reset "Piezo Detected" Flag. 
             detachInterrupt(digitalPinToInterrupt(PiezzoIOpin));//disable Piezzo Interrupt
             pinMode(PiezzoIOpin, OUTPUT);
         }
-        if (digitalRead(RemoteStartINpin) == HIGH)
+        if (digitalRead(RemoteStartINpin) == HIGH)//Press Start Button.
         {
             digitalWrite(ENGINE_StartPin, HIGH);
 
-        } else if (digitalRead(RemoteStartINpin) == LOW)
+        } else if (digitalRead(RemoteStartINpin) == LOW)//Release Start Button.
         {
             digitalWrite(ENGINE_StartPin, LOW);
         }
 
     }//
 
-    if ((digitalRead(RemoteShotDownINpin) == LOW) && RemoteShotDownFlag == true)
+    if ((digitalRead(RemoteShutDownINpin) == LOW) && RemoteShutDownFlag == true)
     {
-        if (millis() - RemoteShotDownLastMillis >= 10000)//Wait For 10 Seconds To Engine's shotdown Complete.
+        if (millis() - RemoteShutDownLastMillis >= 10000)//Wait For 10 Seconds To Engine's shutdown Complete.
         {
-            RemoteShotDownLastMillis = millis();
+            RemoteShutDownLastMillis = millis();
             digitalWrite(EMERGENCYShutDownPin, LOW);
         }
     }
 
 }
 
+/// <summary>
+/// Lock ENGINE.  
+/// </summary>
 void DoLock()
 {
     if (lockflag == true)
     {
         //single Alarm
+        single_Alarm = true;
+        pinMode(PiezzoIOpin, INPUT);//toggle Piezo to shake sensor
+        attachInterrupt(digitalPinToInterrupt(PiezzoIOpin), ListenForPiezo, CHANGE);//Attach ISR For Piezo sensor
+        TemporaryDOSwitch(false);//close switch.
 
     }
     if (PiezzoDetected == true)
     {
         //continous Alarm
+        Alarm = true;
+        Alarm_Timer = millis();//Start the Alarm's Auto-Disable Timer
     }
+
 }
+
+/// <summary>
+/// Play's Alarm Sounds.
+/// </summary>
+void DoAlarm()
+{
+    if (Alarm == true)
+    {
+        if (Silenced == false)// if not silenced
+        {
+            blinkerstate = true;//Enable Blinkers.
+            multiblink = true;//Enable Blinkers.
+
+            switch (Alarmstage)
+            {
+            case 1:
+                /*Serial.println("1A");*/
+                //play_tone_in_case = false;
+                if (micros() - Alarm_prevmicros >= mod_A_delay)
+                {
+                    Alarm_prevmicros = micros();
+                    if (flag == true)
+                    {
+                        A_freq++;
+                        if (A_freq >= 768)
+                        {
+                            currentCounter++;
+                            flag = false;
+                        }
+                    } else
+                    {
+                        A_freq--;
+                        if (A_freq <= 511)
+                            flag = true;
+
+                    }
+                }
+                tone(PiezzoIOpin, A_freq);
+
+                break;
+            case 4:
+                /*Serial.println("4B");*/
+                //play_tone_in_case = false;
+                if (millis() - Alarm_prevmillis >= mod_D_delay)
+                {
+                    Alarm_prevmillis = millis();
+                    if (D_freq <= 511)
+                    {
+                        D_freq = 912;
+                    } else
+                    {
+                        D_freq = 511;
+                        currentCounter++;
+                    }
+                }
+                tone(PiezzoIOpin, D_freq);
+                break;
+            case 2:
+                /*Serial.println("B");*/
+                //play_tone_in_case = true;
+                if (micros() - Alarm_prevmicros >= mod_B_delay)
+                {
+                    Alarm_prevmicros = micros();
+                    if (flag == true)
+                    {
+                        mod3_wait++;
+                        noTone(PiezzoIOpin);
+                        if (mod3_wait >= 100)
+                        {
+
+                            B_freq = 912;
+                            flag = false;
+                            mod3_wait = 0;
+                        }
+                    } else
+                    {
+                        B_freq--;
+                        tone(PiezzoIOpin, B_freq);
+                        if (B_freq <= 511)
+                        {
+                            flag = true;
+                            currentCounter++;
+                        }
+                    }
+                }//micros
+                break;
+            case 3:
+                /*Serial.println("C");*/
+                //play_tone_in_case = true;
+                if (micros() - Alarm_prevmicros >= mod_C_delay)
+                {
+                    Alarm_prevmicros = micros();
+                    mod3_wait++;
+                    if (mod3_wait >= 100)
+                    {
+                        mod3_wait = 0;
+                        currentCounter++;
+                        flag = !flag;
+                    }
+                    if (flag == true)
+                    {
+                        //mod3_wait++;
+                        noTone(PiezzoIOpin);
+                    } else
+                    {
+                        //freq--;
+                        tone(PiezzoIOpin, C_freq);
+
+                    }
+                }//micros
+                break;
+            }
+
+
+            if (currentCounter >= 10)
+            {
+                currentCounter = 0;
+                Alarmstage++;
+                flag = true;///reset the Flag
+                mod3_wait = 0;//reset counter 
+            }
+            if (Alarmstage > 4)
+            {
+                Alarmstage = 1;
+            }
+
+        } else//Silent Mode. Just Blinkers.
+        {
+            blinkerstate = true;//Enable Blinkers.
+            multiblink = true;//Enable Blinkers.
+        }
+
+        if (millis() - Alarm_Timer >= 20000)
+        {
+            Alarm_Timer = 0;//reset The Timer.
+            Alarm = false;
+            blinkerstate = false;//
+            multiblink = false;
+            noTone(PiezzoIOpin);
+        }
+
+    } else// Disable Alarm
+    {
+        Alarm = false;//Disable Alarm
+        Alarm_Timer = 0;//reset The Timer.
+    }
+    //
+    /////////Single Alarm
+    if (single_Alarm == true)
+    {
+        blinkerstate = true;//Enable Blinkers.
+        multiblink = true;//Enable Blinkers.
+       /* Serial.println("s");*/
+        if (micros() - Alarm_prevmicros >= Single_delay)
+        {
+            Alarm_prevmicros = micros();
+            if (flag == true)
+            {
+                Single_freq++;
+                tone(PiezzoIOpin, Single_freq);
+                if (Single_freq >= 768)
+                {
+                    singlecount++;
+                    //freq =768;
+                    flag = false;
+                }
+            } else
+            {
+                Single_freq--;
+                noTone(PiezzoIOpin);
+                if (Single_freq <= 611)
+                    flag = true;
+            }
+        }//micros
+
+
+        if (singlecount >= 2)
+        {
+            blinkerstate = false;//disable Blinkers.
+            multiblink = false;//disable Blinkers.
+            singlecount = 0;
+            noTone(PiezzoIOpin);
+            single_Alarm = false;
+        }
+
+    }///single
+}//
