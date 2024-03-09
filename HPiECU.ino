@@ -8,62 +8,68 @@
 /        1402/06/01 Created By Hosein Pirani.                                               *
 /                                                                                           *
 /       Modified in  fri. 1402/06/17 from 15:00 To 19:00 (blinkers)                         *
-/       Last modification: mon. 1402/10/13 from 16:35 To 19:10(AutoStart+Switch+LockAlarm ) *
-/TODO: REMOTE Control Listener + Alarm + Tone                                               *
+/       Last modification: tue. 1402/12/19 from 17:00 To 19:05(pin changes,thermo.Added...) *
+/TODO:                                                                                      *
 /TODO: Test LED FLASHERs                                                                    *
-/TODO:  AUTO Start Function + SwitchPins(VCC+GND)gnd for CDI shutdown pin                   *
+/TODO:                                                                                      *
 /TODO: !!engine temp SenSor!! + indicator                                                   *
 /TODO: ,fix if() bug on loop(),Serial Communic.edit RPM Meter   ,!!engine temp SenSor!!     *
 /TODO: TEST And Debug idle Speed Adjuster                                                   *
 /*******************************************************************************************/
-
-
+////
+/// FIX SWITCH IO PINS! should be PA7  For  Toggle,PC7 for detect.
+////////////REMOVE BRAKE!!!!!
+///////////Fix EMERGENCY Shutdown Pin : compare vit with CDI Shot down wich connected To An Normal Close Relay, and shut down will Done with toggle the  relay.
+///TEMPSENSE pins + EMERGENCY Shutdown should changed to MAX6675 termocouple ic IO's
 #include <EEPROM.h>
+//Termocouple
+#include <max6675.h>
 ///Servo
 #include <ServoTimer2.h>
 // Servo For Adjusting Idle throttle(ENGINEs Idle RPM)
 ServoTimer2 IdleServo;
 
-// pin 23 is curently unused.
+
+// pin PC1 is curently unused. USE IT FOR PIEZO DETECTOR
 //!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!Pinouts should be Coreccted For Final Upload!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 
 constexpr auto EEP_FIRST_CHECK_FLAG = 0;////////////////////////////////EEPROM FLAG Should be changed For Final Upload.
-
-constexpr auto headlightPin = 2;
-constexpr auto frontLeftBlinkPin = 4;
-constexpr auto backLeftBlinkPin = 5;
-constexpr auto frontRightBlinkPin = 6;
-constexpr auto backRightBlinkPin = 7;
-constexpr auto LeftHornPin = 8;
-constexpr auto RightHornPin = 9;
-constexpr auto RedSPin = 10;
-constexpr auto blueSPin = 11;
-constexpr auto BrakePin = 12;
-constexpr auto AudioSwitcherPin = A0; /// Used For Swith Between  HIFI Speaker And Piezo Buzzer For Siren. 
-constexpr auto EMERGENCYShutDownPin = A4; /// For Remote ShutDown
-constexpr auto CDI_ShutDownPin = 15; ////  For Auto Startup.should connected to relay (Normal OPEN)
-constexpr auto ENGINE_StartPin = 16; /// connected to relay/Power Transistor For auto start function. 
-constexpr auto SwitchPin = 17; // connected to relay for software controlled switch and Autostartup
-constexpr auto MotorPin = A6; /// steper|DC|servo motor for adjusting idle throttle(adjust engine's idle rpm)
-//Piezo I/O Pin
-constexpr auto PiezoIOpin = 18;//For Piezo Alarm. either INPUT & OUTPUT.
+///RPM in : PD6--- PD0 & PD1 are serial pins.
+constexpr auto headlight_OutPin = 1;//PB1
+constexpr auto frontLeftBlink_OutPin = 0;//PB0
+constexpr auto backLeftBlink_OutPin = 5;//PB5
+constexpr auto frontRightBlink_OutPin = 4;//PB4
+constexpr auto backRightBlink_OutPin = 7;//PB7
+constexpr auto LeftHorn_OutPin = 6;//PB6
+constexpr auto RightHorn_OutPin = A1;//PA1(25)
+constexpr auto RedS_OutPin = 3;//PB3
+constexpr auto blueS_OutPin = 2;//PB2
+constexpr auto SERVO_OutPin = A7;//PA7 SERVO OUT
+constexpr auto AudioSwitcher_OutPin = A0;//PA0 /// Used For Swith Between  HIFI Speaker And Piezo Buzzer For Siren. 
+constexpr auto Piezo_OutPin = A4;//PA4 PIEZO ALARM OUT
+constexpr auto CDI_ShutDown_OutPin = A6;//PA6 ////  For Auto Startup.should connected to relay (Normal close)//Open For Power Off
+constexpr auto ENGINE_Start_OutPin = 16;//PC0 /// connected to relay/Power Transistor For auto start function. 
+constexpr auto Switch_OutPin = 15;//PD7 // connected to relay for software controlled switch and Autostartup
+//Piezo Shake Sense In Pin
+constexpr auto ShakeSense_INpin = 11;//PD3//For Piezo Alarm. either INPUT & OUTPUT. //////////////should be output only.
 // Input Keys
-constexpr auto RemoteStartINpin = 19; //Remote Start
-constexpr auto RemoteLSINpin = 20;//Lock or Silence if  Alarm actived or silence Lock.
-constexpr auto RemoteUnlockINpin = 21;//unlock Alarm
-constexpr auto RemoteShutDownINpin = 22;///Remote Emergency ShutDown
-constexpr auto LturnINpin = A2;
-constexpr auto RturnINpin = A3;
-constexpr auto HEADLightINpin = A5;
-constexpr auto BrakeINpin = 13;
-constexpr auto HornINpin = 3;
-constexpr auto TempSenseInpin = A7;//Engine Temprature SenSor Pin.
-constexpr auto SwitchINpin = 17;//for check the switch is Open Or No. 
-constexpr auto VBattINpin = A1;//for Measuring Battery Voltage for 90v -> r1 =220k , r2 = 13k output = 5v max. 
-// for 24 V  75K(76K) ,20K
-// for 12 v 4.7k ,6.8k
-//for  55 v 10K ,1K prefrred
-
+constexpr auto RemoteStartINpin = 22;//PC6; //Remote Start
+constexpr auto RemoteLSINpin = 19;//PC3//Lock or Silence if  Alarm actived or silence Lock.
+constexpr auto RemoteUnlockINpin = 20;//PC4;//unlock Alarm
+constexpr auto RemoteShutDownINpin = 21;//PC5;///Remote Emergency ShutDown
+constexpr auto LturnINpin = A2;//PA2;
+constexpr auto RturnINpin = A3;//PA3;
+constexpr auto HEADLightINpin = 18;//PC2;
+//Temp Sensor
+constexpr auto ThermoCS_OutPin = 17;//PC1
+constexpr auto ThermoSCK_OutPin = 12;//PD4
+constexpr auto ThermoSO_InPin = 13;//PD5
+//
+constexpr auto HornINpin = 10;//PD2//
+constexpr auto SwitchINpin = 17;//PC7//for check the switch is Open Or No. 
+constexpr auto VBattINpin = A5;//PA5//for Measuring Battery Voltage for 90v -> r1 =220k , r2 = 13k output = 5v max. 
+// Termocouple
+MAX6675 thermocouple(ThermoSCK_OutPin, ThermoCS_OutPin, ThermoSO_InPin);
 ///////////RPM Meter
 bool MeasEnd = 0;
 uint16_t T1OVF_Counter = 0;
@@ -71,7 +77,7 @@ unsigned long input_Rissing_time = 0, input_Falling_time = 0, input_TOP_time = 0
 const unsigned long Timer1_prescaler_freq = 250000;//2000000
 unsigned long rpmPrvmillis = 0;
 int RPM = 0;
-
+//
 ///Idle RPM
 unsigned long idleSpeedPrevMillis = 0;
 bool RPMadjusted = false;
@@ -100,15 +106,19 @@ uint16_t eep_minServoAngle = 0, eep_maxServoAngle = 360;
  uint16_t A_freq = 768, D_freq = 700, B_freq = 768, C_freq = 170, Single_freq = 611;
  int mod3_wait = 0;
  unsigned long delayy = 550, mod_A_delay = 350, mod_D_delay = 400, mod_B_delay = 350, mod_C_delay = 3000, Single_delay = 500;
- String input = "";
  byte Alarmstage = 1, currentCounter = 0, singlecount = 0;/// current stage of Alarm
 //
-///temperature
-uint16_t Enginetemperature = 0;
+// Battery Voltage 
+float r1 = 10000.0;// HighResistor 10Kohms.
+float r2 = 1000.0;//LowResistor 1Kohms.  10:1 Divided
+// for 24 V  75K(76K) ,20K
+// for 12 v 4.7k ,6.8k
+//for  55 v 10K ,1K prefrred
+//
 //!!!!!!!!!!!!!
 //! bellow lines may removed for final upload!
 //! //////////////
-#ifdef __AVR_ATmega16__///because im testing it on both atmega16 and atmega328
+#if defined (__AVR_ATmega16__)|| defined(__AVR_ATmega32__)///because im testing it on both atmega16 and atmega328
 #define TIMERMASK TIMSK
 #define RPM_PULSE_IN 14
 #else 
@@ -179,7 +189,6 @@ byte eep_maxServoAngleAddress = eep_minServoAngleAddress + sizeof(uint16_t);
 //
 //Serial
 String   input = "";
-bool commandFromUI = false;///  any blink command comes from UI (?)
 /*
 String SerialInputCommands[] ={"off","on","headlight:on","headlight:off","leftfrontblink","leftbackblink","rightfrontblink",
 "rightbackblink","brake","lefthorn","righthorn","smalllight","DoSirenLight","TurnOffSiren","multiblink:on","multiblink:off",
@@ -228,31 +237,31 @@ void setup()
   Serial.begin(115200);
 
   //Outputs
-  pinMode(headlightPin,OUTPUT);
-  pinMode(backLeftBlinkPin,OUTPUT);
-  pinMode(frontLeftBlinkPin,OUTPUT);
-  pinMode(backRightBlinkPin,OUTPUT);
-  pinMode(frontRightBlinkPin,OUTPUT);
-  pinMode(BrakePin,OUTPUT);
-  pinMode(LeftHornPin,OUTPUT);
-  pinMode(RightHornPin,OUTPUT);
-  pinMode(blueSPin,OUTPUT);
-  pinMode(RedSPin,OUTPUT);
-  pinMode(AudioSwitcherPin,OUTPUT);
-  pinMode(EMERGENCYShutDownPin, OUTPUT);
-  pinMode(MotorPin, OUTPUT);
-  pinMode(CDI_ShutDownPin, OUTPUT);
-  pinMode(ENGINE_StartPin, OUTPUT);
-  pinMode(SwitchPin, OUTPUT);
-  pinMode(PiezoIOpin, OUTPUT);
+  pinMode(headlight_OutPin,OUTPUT);
+  pinMode(backLeftBlink_OutPin,OUTPUT);
+  pinMode(frontLeftBlink_OutPin,OUTPUT);
+  pinMode(backRightBlink_OutPin,OUTPUT);
+  pinMode(frontRightBlink_OutPin,OUTPUT);
+  pinMode(LeftHorn_OutPin,OUTPUT);
+  pinMode(RightHorn_OutPin,OUTPUT);
+  pinMode(blueS_OutPin,OUTPUT);
+  pinMode(RedS_OutPin,OUTPUT);
+  pinMode(AudioSwitcher_OutPin,OUTPUT);
+  pinMode(ThermoCS_OutPin, OUTPUT);
+  pinMode(ThermoSCK_OutPin, OUTPUT);
+  pinMode(SERVO_OutPin, OUTPUT);
+  pinMode(CDI_ShutDown_OutPin, OUTPUT);
+  pinMode(ENGINE_Start_OutPin, OUTPUT);
+  pinMode(Switch_OutPin, OUTPUT);
+  pinMode(Piezo_OutPin, OUTPUT);
   ///Inputs
   pinMode(LturnINpin, INPUT);
   pinMode(RturnINpin, INPUT);
   pinMode(HEADLightINpin, INPUT);
-  pinMode(BrakeINpin, INPUT);
+  pinMode(ThermoSO_InPin, INPUT);
   pinMode(HornINpin, INPUT);
   pinMode(VBattINpin, INPUT);
-  pinMode(TempSenseInpin, INPUT);
+  pinMode(ShakeSense_INpin, INPUT);
   pinMode(SwitchINpin, INPUT);
   pinMode(RemoteLSINpin, INPUT);
   pinMode(RemoteUnlockINpin, INPUT);
@@ -266,7 +275,20 @@ void setup()
   TCCR1B |= B11000011;  // (B11000010) Internal Clock, Prescaler = 16, ICU Filter EN, ICU Pin RISING
   TIMERMASK |= B00100001;  // Enable Timer OVF & CAPT Interrupts
   ////SERVO
-  IdleServo.attach(MotorPin);
+  IdleServo.attach(SERVO_OutPin);
+  //
+  //Blink Lights For Test!
+  digitalWrite(headlight_OutPin, HIGH);
+  digitalWrite(frontLeftBlink_OutPin, HIGH);
+  digitalWrite(frontRightBlink_OutPin, HIGH);
+  digitalWrite(backLeftBlink_OutPin, HIGH);
+  digitalWrite(backRightBlink_OutPin, HIGH);
+  delay(300);
+  digitalWrite(headlight_OutPin, LOW);
+  digitalWrite(frontLeftBlink_OutPin, LOW);
+  digitalWrite(frontRightBlink_OutPin, LOW);
+  digitalWrite(backLeftBlink_OutPin, LOW);
+  digitalWrite(backRightBlink_OutPin, LOW);
 }
 
 void loop() 
@@ -315,25 +337,13 @@ void loop()
  ///// RPM Adjusting
  if (RPMadjusted == false) adjustIdleSpeed();
 
-//////brake
-      if (digitalRead(BrakeINpin) == HIGH ) 
-    {   
-    digitalWrite(BrakePin, HIGH);
-    digitalWrite(BrakePin,HIGH);
-    brakeflag = true;
-    }
-    else {
-      if (brakeflag)
-      {
-    digitalWrite(BrakePin, LOW);
-    digitalWrite(BrakePin,LOW);
-      }
 
-    }
+
+
     //headlight
   if (digitalRead(HEADLightINpin) == HIGH)
    {
-    digitalWrite(headlightPin, HIGH);
+    digitalWrite(headlight_OutPin, HIGH);
     headlightFlag = true;
     
    }else  //headLight Off
@@ -341,7 +351,7 @@ void loop()
     {
       if (headlightFlag == true)
       {
-    digitalWrite(headlightPin, LOW);
+    digitalWrite(headlight_OutPin, LOW);
     Serial.print("\nHEAD off\n");
     headlightFlag = false;
       }
@@ -371,8 +381,8 @@ void loop()
     if (lturnflag == true)
     {
      
-        digitalWrite(backLeftBlinkPin,LOW);
-      digitalWrite(frontLeftBlinkPin,LOW);
+        digitalWrite(backLeftBlink_OutPin,LOW);
+      digitalWrite(frontLeftBlink_OutPin,LOW);
          blinkerstate = false;
       Leftfrontblinkerstate = false;
       Leftbackblinkerstate = false;
@@ -402,8 +412,8 @@ void loop()
       } else
       {
           multiblink = false;      ///the
-          digitalWrite(backLeftBlinkPin, LOW);//other
-          digitalWrite(frontLeftBlinkPin, LOW);//blinkers
+          digitalWrite(backLeftBlink_OutPin, LOW);//other
+          digitalWrite(frontLeftBlink_OutPin, LOW);//blinkers
           input = ""; //clear the buffer
           if (blinkdance) Serial.print("danceOff");   //UpdateUI  
           blinkdance = false;//
@@ -417,8 +427,8 @@ void loop()
    {
     if (rturnflag == true)
     {
-      digitalWrite(backRightBlinkPin,LOW);
-      digitalWrite(frontRightBlinkPin,LOW);
+      digitalWrite(backRightBlink_OutPin,LOW);
+      digitalWrite(frontRightBlink_OutPin,LOW);
        blinkerstate = false;
        Rightbackblinkerstate = false;
        Rightfrontblinkerstate = false;
@@ -466,12 +476,14 @@ void loop()
        Serial.println("Temp");
        Serial.println(GetEngineTemp());
    }
+   ////////////////////////////////////////////////////////////////
   // read incomming commands
+
 
   /// turn on main lights///////
   if (input == "headlight:on")
      {
-      digitalWrite(headlightPin,HIGH);
+      digitalWrite(headlight_OutPin,HIGH);
       input ="";
 
      }//
@@ -480,7 +492,7 @@ void loop()
        {
         if (headlightFlag ==false)
         {
-          digitalWrite(headlightPin,LOW);
+          digitalWrite(headlight_OutPin,LOW);
           input ="";
         }
        }////////
@@ -524,12 +536,12 @@ void loop()
    // Emergency. Called By UI (recieved Remotely)
    if (input == "EMERGENCYSHOTDOWN")
        {
-       analogWrite(EMERGENCYShutDownPin, HIGH);
+       digitalWrite(CDI_ShutDown_OutPin, HIGH);
        }
    // Can Start Engine
    if (input == "AllowStart")
        {
-       analogWrite(EMERGENCYShutDownPin, LOW);
+       digitalWrite(CDI_ShutDown_OutPin, LOW);
        }
     //////turn off All Blinkers ///////////
   if ((input == "lturnblink:off") || (input == "rturnblink:off")  || (input == "multiblink:off")  || (input == "blinkdanceOff") )
@@ -543,10 +555,10 @@ void loop()
           Rightfrontblinkerstate = false;
           blinkerstate = false;
           multiblink = false;
-          digitalWrite(backLeftBlinkPin, LOW);
-          digitalWrite(frontLeftBlinkPin, LOW);
-          digitalWrite(backRightBlinkPin, LOW);
-          digitalWrite(frontRightBlinkPin, LOW);
+          digitalWrite(backLeftBlink_OutPin, LOW);
+          digitalWrite(frontLeftBlink_OutPin, LOW);
+          digitalWrite(backRightBlink_OutPin, LOW);
+          digitalWrite(frontRightBlink_OutPin, LOW);
           input = ""; //clear the buffer
           if (blinkdance) Serial.print("danceOff");   //UpdateUI  
           blinkdance = false;
@@ -674,8 +686,8 @@ void Blink(void)
         {        
           if ((millis() - prevMillis) >= blinkInterval)
              {                          
-              digitalWrite(frontLeftBlinkPin,state);
-               digitalWrite(backLeftBlinkPin,state);  
+              digitalWrite(frontLeftBlink_OutPin,state);
+               digitalWrite(backLeftBlink_OutPin,state);  
                /// call ui app
                if (state)
                {
@@ -693,8 +705,8 @@ void Blink(void)
          {
                   if (millis() - prevMillis >= blinkInterval)
            {
-                   digitalWrite(backRightBlinkPin,state);
-                   digitalWrite(frontRightBlinkPin,state);
+                   digitalWrite(backRightBlink_OutPin,state);
+                   digitalWrite(frontRightBlink_OutPin,state);
                   state =!state;
                   if (state)
                   {
@@ -710,11 +722,11 @@ void Blink(void)
          if (multiblink)
           {
             if (millis() - prevMillis >= (blinkInterval)){
-                              digitalWrite(backRightBlinkPin,!state);
-                   digitalWrite(frontRightBlinkPin,!state);
-                   digitalWrite(frontLeftBlinkPin,!state);
-                   digitalWrite(backLeftBlinkPin,!state);
-                   digitalWrite(backRightBlinkPin, !state);
+                              digitalWrite(backRightBlink_OutPin,!state);
+                   digitalWrite(frontRightBlink_OutPin,!state);
+                   digitalWrite(frontLeftBlink_OutPin,!state);
+                   digitalWrite(backLeftBlink_OutPin,!state);
+                   digitalWrite(backRightBlink_OutPin, !state);
                    if (state)//Update UI
                    {
                        Serial.print("M");
@@ -739,20 +751,20 @@ void Blink(void)
                     switch (danceblinkcounter) 
                     {             
                     case 1:         
-                      digitalWrite(frontLeftBlinkPin,HIGH);
-                      digitalWrite(backLeftBlinkPin,LOW);
+                      digitalWrite(frontLeftBlink_OutPin,HIGH);
+                      digitalWrite(backLeftBlink_OutPin,LOW);
                      break;
                      case 2:
-                     digitalWrite(frontLeftBlinkPin,LOW);
-                     digitalWrite(frontRightBlinkPin,HIGH);
+                     digitalWrite(frontLeftBlink_OutPin,LOW);
+                     digitalWrite(frontRightBlink_OutPin,HIGH);
                      break;
                      case 3:
-                     digitalWrite(frontRightBlinkPin,LOW);
-                     digitalWrite(backRightBlinkPin,HIGH);
+                     digitalWrite(frontRightBlink_OutPin,LOW);
+                     digitalWrite(backRightBlink_OutPin,HIGH);
                      break;
                      case 4:
-                     digitalWrite(backRightBlinkPin,LOW);
-                     digitalWrite(backLeftBlinkPin,HIGH);
+                     digitalWrite(backRightBlink_OutPin,LOW);
+                     digitalWrite(backLeftBlink_OutPin,HIGH);
                      danceblinkcounter = 0;
                      stagecounter++;
                      if (stagecounter >=5)
@@ -777,12 +789,12 @@ void Blink(void)
             {            
               if ((millis() - delayMillis) >= 50)
               {
-                digitalWrite(backLeftBlinkPin,LOW);//turn off the 
-                digitalWrite(backRightBlinkPin,LOW);//back blinkers
+                digitalWrite(backLeftBlink_OutPin,LOW);//turn off the 
+                digitalWrite(backRightBlink_OutPin,LOW);//back blinkers
                 delayMillis = millis();
                 danceTwoFrontState = !danceTwoFrontState;
-                digitalWrite(frontLeftBlinkPin,danceTwoFrontState);//toggle the 
-                digitalWrite(frontRightBlinkPin,danceTwoFrontState);// front blinkers.
+                digitalWrite(frontLeftBlink_OutPin,danceTwoFrontState);//toggle the 
+                digitalWrite(frontRightBlink_OutPin,danceTwoFrontState);// front blinkers.
                 if (danceTwoFrontState == HIGH)
                 {
                   Serial.print("\n 1A \n");
@@ -802,12 +814,12 @@ void Blink(void)
              {
                if (millis() - delayMillis >=50)
                {
-                digitalWrite(frontLeftBlinkPin,LOW);//turn off the 
-                digitalWrite(frontRightBlinkPin,LOW);//front blinkers
+                digitalWrite(frontLeftBlink_OutPin,LOW);//turn off the 
+                digitalWrite(frontRightBlink_OutPin,LOW);//front blinkers
                 delayMillis = millis();
                 danceTwoBackState =!danceTwoBackState;
-                digitalWrite(backLeftBlinkPin,danceTwoBackState);
-                digitalWrite(backRightBlinkPin,danceTwoBackState);
+                digitalWrite(backLeftBlink_OutPin,danceTwoBackState);
+                digitalWrite(backRightBlink_OutPin,danceTwoBackState);
                  if (danceTwoBackState == HIGH)
                  {
                   Serial.print("\n 1B \n");
@@ -838,12 +850,12 @@ void Blink(void)
            {            
               if ((millis() - delayMillis) >= 50)
               {
-                digitalWrite(frontRightBlinkPin,LOW);//turn off the 
-                digitalWrite(backRightBlinkPin,LOW);//Right blinkers
+                digitalWrite(frontRightBlink_OutPin,LOW);//turn off the 
+                digitalWrite(backRightBlink_OutPin,LOW);//Right blinkers
                 delayMillis = millis();
                 danceTwoFrontState = !danceTwoFrontState;
-                digitalWrite(frontLeftBlinkPin,danceTwoFrontState);//toggle the 
-                digitalWrite(backLeftBlinkPin,danceTwoFrontState);// Left blinkers.
+                digitalWrite(frontLeftBlink_OutPin,danceTwoFrontState);//toggle the 
+                digitalWrite(backLeftBlink_OutPin,danceTwoFrontState);// Left blinkers.
                 if (danceTwoFrontState == HIGH)
                 {
                   Serial.print("\n 1A \n");
@@ -863,12 +875,12 @@ void Blink(void)
              {
               if (millis() - delayMillis >=50)
               {
-                digitalWrite(frontLeftBlinkPin,LOW);//turn off the 
-                digitalWrite(backLeftBlinkPin,LOW);//Left blinkers
+                digitalWrite(frontLeftBlink_OutPin,LOW);//turn off the 
+                digitalWrite(backLeftBlink_OutPin,LOW);//Left blinkers
                 delayMillis = millis();
                 danceTwoBackState =!danceTwoBackState;
-                digitalWrite(frontRightBlinkPin,danceTwoBackState);
-                digitalWrite(backRightBlinkPin,danceTwoBackState);
+                digitalWrite(frontRightBlink_OutPin,danceTwoBackState);
+                digitalWrite(backRightBlink_OutPin,danceTwoBackState);
                  if (danceTwoBackState == HIGH)
                  {
                   Serial.print("\n 1B \n");
@@ -901,10 +913,10 @@ void Blink(void)
               {
                 delayMillis = millis();
                 danceTwoFrontState = !danceTwoFrontState;
-                digitalWrite(frontLeftBlinkPin,danceTwoFrontState);///Toggle
-                digitalWrite(frontRightBlinkPin,danceTwoFrontState);///the
-                digitalWrite(backLeftBlinkPin,danceTwoFrontState);///All
-                digitalWrite(backRightBlinkPin,danceTwoFrontState);//Blinkers
+                digitalWrite(frontLeftBlink_OutPin,danceTwoFrontState);///Toggle
+                digitalWrite(frontRightBlink_OutPin,danceTwoFrontState);///the
+                digitalWrite(backLeftBlink_OutPin,danceTwoFrontState);///All
+                digitalWrite(backRightBlink_OutPin,danceTwoFrontState);//Blinkers
                 if (danceTwoFrontState == HIGH)
                 {
                   Serial.print("\n 1A \n");
@@ -924,10 +936,10 @@ void Blink(void)
              {
               if (millis() - delayMillis >=50)
               {
-                digitalWrite(frontLeftBlinkPin,LOW);//turn off the 
-                digitalWrite(backLeftBlinkPin,LOW);//Left blinkers
-                digitalWrite(frontRightBlinkPin,LOW);
-                digitalWrite(backRightBlinkPin,LOW);
+                digitalWrite(frontLeftBlink_OutPin,LOW);//turn off the 
+                digitalWrite(backLeftBlink_OutPin,LOW);//Left blinkers
+                digitalWrite(frontRightBlink_OutPin,LOW);
+                digitalWrite(backRightBlink_OutPin,LOW);
                 delayMillis = millis();
                 danceTwoBackState =!danceTwoBackState;
 
@@ -980,8 +992,8 @@ void Horn ()
         // case 1:
         if ((hornclicks == 1) && (millis() - buttonPrevMillis) > 300)
         {  
-          digitalWrite(RightHornPin,HIGH);
-          digitalWrite(LeftHornPin,HIGH);
+          digitalWrite(RightHorn_OutPin,HIGH);
+          digitalWrite(LeftHorn_OutPin,HIGH);
         }else if ((hornclicks == 2) && (millis() - buttonPrevMillis) > 300)
         {
           
@@ -990,10 +1002,10 @@ void Horn ()
           {            
               if ((millis() - delayMillis) >= 50)
               {
-                digitalWrite(RightHornPin,LOW);
+                digitalWrite(RightHorn_OutPin,LOW);
                 delayMillis = millis();
                 hornStateA = !hornStateA;
-                digitalWrite(LeftHornPin,hornStateA);
+                digitalWrite(LeftHorn_OutPin,hornStateA);
                 if (hornStateA == HIGH)
                 {
                   Serial.print("\n 1A \n");
@@ -1013,10 +1025,10 @@ void Horn ()
            {
               if (millis() - delayMillis >=50)
               {
-                digitalWrite(LeftHornPin,LOW);
+                digitalWrite(LeftHorn_OutPin,LOW);
                 delayMillis = millis();
                 hornStateB =!hornStateB;
-                digitalWrite(RightHornPin,hornStateB);
+                digitalWrite(RightHorn_OutPin,hornStateB);
                  if (hornStateB == HIGH)
                  {
                   Serial.print("\n 1B \n");
@@ -1044,13 +1056,13 @@ void Horn ()
               delayMillis = millis();
               if (hornModeTwoState == HIGH)
               {
-              digitalWrite(LeftHornPin,LOW);
-              digitalWrite(RightHornPin,HIGH);
+              digitalWrite(LeftHorn_OutPin,LOW);
+              digitalWrite(RightHorn_OutPin,HIGH);
               hornModeTwoState = false;
               }else
                {
-                digitalWrite(RightHornPin,LOW);
-                digitalWrite(LeftHornPin, HIGH);
+                digitalWrite(RightHorn_OutPin,LOW);
+                digitalWrite(LeftHorn_OutPin, HIGH);
                 hornModeTwoState = true;
                }
              }
@@ -1065,80 +1077,80 @@ void Horn ()
             hornModeCStage = 2;
            hornModThreeState = true;
            delayMillis = millis();
-           digitalWrite(LeftHornPin ,hornModThreeState);
-           digitalWrite(RightHornPin, hornModThreeState);
+           digitalWrite(LeftHorn_OutPin ,hornModThreeState);
+           digitalWrite(RightHorn_OutPin, hornModThreeState);
           } else if (millis() - delayMillis >= 50 && hornModThreeState == true && hornModeCStage == 2)
             {
               Serial.println("stage 2");
               hornModeCStage = 3;
               hornModThreeState = false;
               delayMillis = millis();
-              digitalWrite(LeftHornPin,hornModThreeState);
-              digitalWrite(RightHornPin,hornModThreeState);
+              digitalWrite(LeftHorn_OutPin,hornModThreeState);
+              digitalWrite(RightHorn_OutPin,hornModThreeState);
             }else if (millis() - delayMillis >=100 && hornModThreeState == false && hornModeCStage == 3)
              {
               Serial.println("stage 3");
               hornModeCStage = 4;
               hornModThreeState = true;
               delayMillis = millis();
-              digitalWrite(LeftHornPin,hornModThreeState);
-              digitalWrite(RightHornPin,hornModThreeState);              
+              digitalWrite(LeftHorn_OutPin,hornModThreeState);
+              digitalWrite(RightHorn_OutPin,hornModThreeState);              
              } else if (millis() - delayMillis >=50 && hornModThreeState == true && hornModeCStage == 4)
                {
                 Serial.println("stage 4");
                 hornModeCStage = 5;
                 hornModThreeState = false;
                 delayMillis = millis();
-              digitalWrite(LeftHornPin,hornModThreeState);
-              digitalWrite(RightHornPin,hornModThreeState);                
+              digitalWrite(LeftHorn_OutPin,hornModThreeState);
+              digitalWrite(RightHorn_OutPin,hornModThreeState);                
                } else if (millis() - delayMillis >= 200 && hornModThreeState == false && hornModeCStage == 5)
                  {
                   Serial.println("stage 5");
                   hornModeCStage = 6;
                   hornModThreeState = true;
                   delayMillis = millis();
-                  digitalWrite(LeftHornPin,hornModThreeState);
-                  digitalWrite(RightHornPin,hornModThreeState);
+                  digitalWrite(LeftHorn_OutPin,hornModThreeState);
+                  digitalWrite(RightHorn_OutPin,hornModThreeState);
                  } else if (millis() - delayMillis >=200 && hornModThreeState ==true && hornModeCStage == 6)
                    {
                     Serial.println("stage 6");
                     hornModeCStage = 7;
                     hornModThreeState = false;
                     delayMillis = millis();
-                     digitalWrite(LeftHornPin,hornModThreeState);
-                     digitalWrite(RightHornPin,hornModThreeState);
+                     digitalWrite(LeftHorn_OutPin,hornModThreeState);
+                     digitalWrite(RightHorn_OutPin,hornModThreeState);
                    } else if (millis() - delayMillis >=250 && hornModThreeState == false && hornModeCStage == 7)
                      {
                       Serial.println("stage 7");
                       hornModeCStage = 8;
                       hornModThreeState = true;
                       delayMillis = millis();
-                      digitalWrite(LeftHornPin,hornModThreeState);
-                      digitalWrite(RightHornPin,hornModThreeState);
+                      digitalWrite(LeftHorn_OutPin,hornModThreeState);
+                      digitalWrite(RightHorn_OutPin,hornModThreeState);
                      } else if (millis() - delayMillis >= 250 && hornModThreeState == true && hornModeCStage == 8)
                        {
                         Serial.println("stage 8");
                         hornModeCStage = 9;
                         hornModThreeState = false;
                         delayMillis = millis();
-                        digitalWrite(LeftHornPin,hornModThreeState);
-                        digitalWrite(RightHornPin,hornModThreeState);
+                        digitalWrite(LeftHorn_OutPin,hornModThreeState);
+                        digitalWrite(RightHorn_OutPin,hornModThreeState);
                        } else if (millis() - delayMillis >=250 && hornModThreeState ==false && hornModeCStage == 9)
                          {
                           Serial.println("stage 9");
                           hornModeCStage = 10;
                           hornModThreeState = true;
                           delayMillis = millis();
-                          digitalWrite(LeftHornPin,hornModThreeState);
-                          digitalWrite(RightHornPin,hornModThreeState);
+                          digitalWrite(LeftHorn_OutPin,hornModThreeState);
+                          digitalWrite(RightHorn_OutPin,hornModThreeState);
                          }else if (millis() - delayMillis >=250 && hornModThreeState ==true && hornModeCStage == 10)
                          {
                           Serial.println("stage 10");
                           hornModeCStage = 11;
                           hornModThreeState = false;
                           delayMillis = millis();
-                          digitalWrite(LeftHornPin,hornModThreeState);
-                          digitalWrite(RightHornPin,hornModThreeState);
+                          digitalWrite(LeftHorn_OutPin,hornModThreeState);
+                          digitalWrite(RightHorn_OutPin,hornModThreeState);
                          }else if (millis() - delayMillis >=250 && hornModThreeState ==false && hornModeCStage == 11)
                          {
                           Serial.println("stage 11");
@@ -1149,8 +1161,8 @@ void Horn ()
   }else
   { 
  //   Serial.println("released");
-   digitalWrite(LeftHornPin,LOW);
-   digitalWrite(RightHornPin,LOW);
+   digitalWrite(LeftHorn_OutPin,LOW);
+   digitalWrite(RightHorn_OutPin,LOW);
   }
 } 
 /// <summary>
@@ -1211,11 +1223,11 @@ void blinkSiren()
                     {
                     if ((millis() - sirenDancePrevMillis) >= 50)
                         {
-                        digitalWrite(blueSPin, LOW);//turn off the blues
+                        digitalWrite(blueS_OutPin, LOW);//turn off the blues
 
                         sirenDancePrevMillis = millis();
                         sirenDanceREDState = !sirenDanceREDState;
-                        digitalWrite(RedSPin, sirenDanceREDState);//toggle the 
+                        digitalWrite(RedS_OutPin, sirenDanceREDState);//toggle the 
 
                         if (sirenDanceREDState == HIGH)
                             {
@@ -1236,11 +1248,11 @@ void blinkSiren()
                         {
                         if (millis() - sirenDancePrevMillis >= 50)
                             {
-                            digitalWrite(RedSPin, LOW);//turn off the reds
+                            digitalWrite(RedS_OutPin, LOW);//turn off the reds
 
                             sirenDancePrevMillis = millis();
                             sirenDanceBLUEState = !sirenDanceBLUEState;
-                            digitalWrite(blueSPin, sirenDanceBLUEState);
+                            digitalWrite(blueS_OutPin, sirenDanceBLUEState);
 
                             if (sirenDanceBLUEState == HIGH)
                                 {
@@ -1270,11 +1282,11 @@ void blinkSiren()
                     {
                     if ((millis() - sirenDancePrevMillis) >= 50)
                         {
-                        digitalWrite(blueSPin, LOW);//turn off the blues
+                        digitalWrite(blueS_OutPin, LOW);//turn off the blues
 
                         sirenDancePrevMillis = millis();
                         sirenDanceREDState = !sirenDanceREDState;
-                        digitalWrite(RedSPin, sirenDanceREDState);//toggle the 
+                        digitalWrite(RedS_OutPin, sirenDanceREDState);//toggle the 
 
                         if (sirenDanceREDState == HIGH)
                             {
@@ -1295,8 +1307,8 @@ void blinkSiren()
                         {
                         if (millis() - sirenDancePrevMillis >= 50)
                             {
-                            digitalWrite(RedSPin, LOW);//turn off  red and blues
-                            digitalWrite(blueSPin, LOW);//
+                            digitalWrite(RedS_OutPin, LOW);//turn off  red and blues
+                            digitalWrite(blueS_OutPin, LOW);//
                             sirenDancePrevMillis = millis();
                             //because this code is copy-Pasted from previous case, Below Lines is unnecessary.
                             //they should be Modified!
@@ -1327,8 +1339,8 @@ void blinkSiren()
           }
     } else
     {
-    digitalWrite(RedSPin, LOW);
-    digitalWrite(blueSPin, LOW);
+    digitalWrite(RedS_OutPin, LOW);
+    digitalWrite(blueS_OutPin, LOW);
     }
 }
 
@@ -1341,10 +1353,10 @@ void toggleSpeakerPin(bool ToBuzzer)
     {
     if (ToBuzzer)
         {
-        digitalWrite(AudioSwitcherPin, LOW);
+        digitalWrite(AudioSwitcher_OutPin, LOW);
         } else
         {
-        digitalWrite(AudioSwitcherPin, HIGH);
+        digitalWrite(AudioSwitcher_OutPin, HIGH);
         }
     }
 
@@ -1356,10 +1368,8 @@ void toggleSpeakerPin(bool ToBuzzer)
 /// <returns>Current Engine's Temperature</returns>
 float GetEngineTemp()
 { 
-    //!!NEED TO BE CORRECTED.TEMPORARY DEFINED!!
-    float adcval = 0;
-    adcval = analogRead(TempSenseInpin);
-    return (adcval / 100);
+    
+    return thermocouple.readCelsius();
 }
 
 /// <summary>
@@ -1372,8 +1382,7 @@ float getBatteryVoltage()
 
     float input_voltage = 0.0;
     float temp = 0.0;
-    float r1 = 10000.0;// HighResistor 10Kohms.
-    float r2 = 1000.0;//LowResistor 1Kohms.  10:1 Divided
+
 
     int analog_value = analogRead(VBattINpin);
 
@@ -1462,8 +1471,8 @@ void SetIdleRPM(uint16_t _RPM)
 /// Auto Start Engine. 
 /// </summary>
 /// <param name="when">-> countDown Time For Start in Milliseconds.</param>
-/// <param name="howmany">-> duration of pressing the Start Button in seconds. use -1 for force until engine start.  </param>
-void AutoStart(int howmany)
+/// <param name="howmany">-> duration of pressing the Start Button in seconds. use 100 for force until engine start.  </param>
+void AutoStart(unsigned int howmany)
 {
 
 
@@ -1479,12 +1488,12 @@ void AutoStart(int howmany)
               
                 if (StartCompleted == false)
                 {
-                    digitalWrite(ENGINE_StartPin, HIGH);
+                    digitalWrite(ENGINE_Start_OutPin, HIGH);
 
 
                     if ((millis()) - AutoStartDurrationMillis > howmany)
                     {
-                        digitalWrite(ENGINE_StartPin, LOW);
+                        digitalWrite(ENGINE_Start_OutPin, LOW);
                         StartCompleted = true;
                         AutoStartDurrationMillis = 0;
                         input = "";//Clear Serial Buffer Here.
@@ -1492,15 +1501,15 @@ void AutoStart(int howmany)
 
                 }
             
-        } else if (howmany == -1)//Start Until Engine turned on.
+        } else if (howmany == 100)//Start Until Engine turned on.
         {
             if (StartCompleted == false)
             {
-                digitalWrite(ENGINE_StartPin, HIGH);
+                digitalWrite(ENGINE_Start_OutPin, HIGH);
             }
             if (RPM >= 1000)
             {
-                digitalWrite(ENGINE_StartPin, LOW);
+                digitalWrite(ENGINE_Start_OutPin, LOW);
                 StartCompleted = true;
             }
 
@@ -1527,17 +1536,15 @@ void TemporaryDOSwitch(bool open)
 {
     if (open == true)
     {
-        digitalWrite(SwitchPin, HIGH);// Connect DC Power To System.
-        digitalWrite(CDI_ShutDownPin, HIGH);//Disable CDI shutdown Pin.
-        digitalWrite(EMERGENCYShutDownPin, LOW);//Disable Emergency shutDown.
+        digitalWrite(Switch_OutPin, HIGH);// Connect DC Power To System.
+        digitalWrite(CDI_ShutDown_OutPin, LOW);//Disable CDI shutdown Pin.
 
     } else//Restore defaults
     {
-        digitalWrite(SwitchPin, LOW);// Disconnect DC Power from System.
-        digitalWrite(CDI_ShutDownPin, LOW);//Enable CDI shutdown Pin.
+        digitalWrite(Switch_OutPin, LOW);// Disconnect DC Power from System.
         if (digitalRead(SwitchINpin) == HIGH)
         {
-            digitalWrite(EMERGENCYShutDownPin, HIGH);// If Switch Not Closed Manually (physically), Close It For Safe.
+            digitalWrite(CDI_ShutDown_OutPin, HIGH);// If Switch Not Closed Manually (physically), Close It For Safe.
         }
     }
 }
@@ -1553,7 +1560,7 @@ void ListenForRemoteControl()
         if (digitalRead(RemoteShutDownINpin) == HIGH)//ShutDown ENGINE Remotely.
         {
 
-            digitalWrite(EMERGENCYShutDownPin, HIGH);
+            digitalWrite(CDI_ShutDown_OutPin, HIGH);
             RemoteShutDownFlag = true;
             RemoteShutDownLastMillis = millis();
         }
@@ -1582,26 +1589,27 @@ void ListenForRemoteControl()
             Alarm = false; //Disable Alarm.
             lockflag = false;////Reset "Lock" Flag. 
             PiezzoDetected = false;//Reset "Piezo Detected" Flag. 
-            detachInterrupt(digitalPinToInterrupt(PiezoIOpin));//disable Piezzo Interrupt
-            pinMode(PiezoIOpin, OUTPUT);
+            detachInterrupt(digitalPinToInterrupt(ShakeSense_INpin));//disable Piezzo Interrupt
+            pinMode(ShakeSense_INpin, OUTPUT);
         }
         if (digitalRead(RemoteStartINpin) == HIGH)//Press Start Button.
         {
-            digitalWrite(ENGINE_StartPin, HIGH);
+            digitalWrite(ENGINE_Start_OutPin, HIGH);
 
         } else if (digitalRead(RemoteStartINpin) == LOW)//Release Start Button.
         {
-            digitalWrite(ENGINE_StartPin, LOW);
+            digitalWrite(ENGINE_Start_OutPin, LOW);
         }
 
     }//
 
-    if ((digitalRead(RemoteShutDownINpin) == LOW) && RemoteShutDownFlag == true)
+    if ((digitalRead(RemoteShutDownINpin) == LOW) && RemoteShutDownFlag == true)// ShutDown Key Was Released. 
     {
         if (millis() - RemoteShutDownLastMillis >= 10000)//Wait For 10 Seconds To Engine's shutdown Complete.
         {
             RemoteShutDownLastMillis = millis();
-            digitalWrite(EMERGENCYShutDownPin, LOW);
+            digitalWrite(CDI_ShutDown_OutPin, LOW);
+            RemoteShutDownFlag = false;
         }
     }
 
@@ -1616,8 +1624,8 @@ void DoLock()
     {
         //single Alarm
         single_Alarm = true;
-        pinMode(PiezoIOpin, INPUT);//toggle Piezo to shake sensor
-        attachInterrupt(digitalPinToInterrupt(PiezoIOpin), ListenForPiezo, CHANGE);//Attach ISR For Piezo sensor
+        pinMode(ShakeSense_INpin, INPUT);//toggle Piezo to shake sensor
+        attachInterrupt(digitalPinToInterrupt(ShakeSense_INpin), ListenForPiezo, CHANGE);//Attach ISR For Piezo sensor
         TemporaryDOSwitch(false);//close switch.
 
     }
@@ -1666,7 +1674,7 @@ void DoAlarm()
 
                     }
                 }
-                tone(PiezoIOpin, A_freq);
+                tone(ShakeSense_INpin, A_freq);
 
                 break;
             case 4:
@@ -1684,7 +1692,7 @@ void DoAlarm()
                         currentCounter++;
                     }
                 }
-                tone(PiezoIOpin, D_freq);
+                tone(ShakeSense_INpin, D_freq);
                 break;
             case 2:
                 /*Serial.println("B");*/
@@ -1695,7 +1703,7 @@ void DoAlarm()
                     if (flag == true)
                     {
                         mod3_wait++;
-                        noTone(PiezoIOpin);
+                        noTone(ShakeSense_INpin);
                         if (mod3_wait >= 100)
                         {
 
@@ -1706,7 +1714,7 @@ void DoAlarm()
                     } else
                     {
                         B_freq--;
-                        tone(PiezoIOpin, B_freq);
+                        tone(ShakeSense_INpin, B_freq);
                         if (B_freq <= 511)
                         {
                             flag = true;
@@ -1731,11 +1739,11 @@ void DoAlarm()
                     if (flag == true)
                     {
                         //mod3_wait++;
-                        noTone(PiezoIOpin);
+                        noTone(ShakeSense_INpin);
                     } else
                     {
                         //freq--;
-                        tone(PiezoIOpin, C_freq);
+                        tone(ShakeSense_INpin, C_freq);
 
                     }
                 }//micros
@@ -1767,13 +1775,15 @@ void DoAlarm()
             Alarm = false;
             blinkerstate = false;//
             multiblink = false;
-            noTone(PiezoIOpin);
+            noTone(ShakeSense_INpin);
         }
 
     } else// Disable Alarm
     {
         Alarm = false;//Disable Alarm
         Alarm_Timer = 0;//reset The Timer.
+        blinkerstate = false;//Disable Blinkers.
+        multiblink = false;//Disable Blinkers.
     }
     //
     /////////Single Alarm
@@ -1788,7 +1798,7 @@ void DoAlarm()
             if (flag == true)
             {
                 Single_freq++;
-                tone(PiezoIOpin, Single_freq);
+                tone(ShakeSense_INpin, Single_freq);
                 if (Single_freq >= 768)
                 {
                     singlecount++;
@@ -1798,7 +1808,7 @@ void DoAlarm()
             } else
             {
                 Single_freq--;
-                noTone(PiezoIOpin);
+                noTone(ShakeSense_INpin);
                 if (Single_freq <= 611)
                     flag = true;
             }
@@ -1810,7 +1820,7 @@ void DoAlarm()
             blinkerstate = false;//disable Blinkers.
             multiblink = false;//disable Blinkers.
             singlecount = 0;
-            noTone(PiezoIOpin);
+            noTone(ShakeSense_INpin);
             single_Alarm = false;
         }
 
