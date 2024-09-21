@@ -7,6 +7,6 @@
 
 :arrow_right: Android Device used as GUI and  controls some Commands Like blinkers and other.
 
- :warning:the project was not completed and i will write more about it later...:warning:
+# Warning :warning:
+This Project Is Under Development and  May Not Work Properly!
  
- :innocent::innocent:
